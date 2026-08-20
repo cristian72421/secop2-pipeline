@@ -1,0 +1,2 @@
+pandas>=2.0
+sodapy>=2.2.0
