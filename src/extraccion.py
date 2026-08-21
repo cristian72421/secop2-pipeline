@@ -50,3 +50,32 @@ def crear_cliente(app_token: str | None = None, timeout: int = 60) -> Socrata:
     cliente = Socrata(DOMINIO, app_token, timeout=timeout)
     logger.info("Cliente Socrata creado para el dominio %s", DOMINIO)
     return cliente
+
+def _construir_where(filtros: dict | None) -> str | None:
+    """
+    Construye la cláusula WHERE de SoQL a partir de un diccionario de filtros.
+
+    Soporta:
+      - Igualdad simple:      {"columna": "valor"}
+      - Rangos de fecha:      {"columna": {"desde": "2024-01-01", "hasta": "2024-12-31"}}
+
+    Los valores de texto se escapan con comillas simples dobladas para evitar
+    romper la consulta.
+    """
+    if not filtros:
+        return None
+
+    condiciones: list[str] = []
+    for columna, valor in filtros.items():
+        if isinstance(valor, dict):  # rango de fechas
+            desde = valor.get("desde")
+            hasta = valor.get("hasta")
+            if desde:
+                condiciones.append(f"{columna} >= '{desde}'")
+            if hasta:
+                condiciones.append(f"{columna} <= '{hasta}'")
+        else:  # igualdad simple (texto)
+            valor_escapado = str(valor).replace("'", "''")
+            condiciones.append(f"{columna} = '{valor_escapado}'")
+
+    return " AND ".join(condiciones) if condiciones else None
