@@ -11,6 +11,8 @@ Monitoría de investigación - Beca Avanza, Universidad de los Andes
 
 from __future__ import annotations
 import logging
+import time
+import pandas as pd
 from sodapy import Socrata
 
 logger = logging.getLogger(__name__)
@@ -79,3 +81,85 @@ def _construir_where(filtros: dict | None) -> str | None:
             condiciones.append(f"{columna} = '{valor_escapado}'")
 
     return " AND ".join(condiciones) if condiciones else None
+
+def extraer_dataset(
+    cliente: Socrata,
+    tabla: str,
+    filtros: dict | None = None,
+    tamano_pagina: int = 50_000,
+    limite_total: int | None = None,
+) -> pd.DataFrame:
+    """
+    Extrae un dataset de SECOP 2 con paginación automática.
+
+    La API de Socrata limita el número de filas por petición, por lo que se
+    descarga por páginas (offset/limit) hasta agotar los resultados o alcanzar
+    el límite total indicado.
+
+    Parameters
+    ----------
+    cliente : Socrata
+        Cliente creado con `crear_cliente`.
+    tabla : str
+        Clave lógica de la tabla ('contratos', 'procesos', 'integrado').
+    filtros : dict | None
+        Filtros a aplicar (ver `_construir_where`).
+    tamano_pagina : int
+        Número de filas por petición.
+    limite_total : int | None
+        Tope de filas a descargar en total (None = sin tope).
+
+    Returns
+    -------
+    pd.DataFrame
+        Datos extraídos y concatenados.
+    """
+    if tabla not in DATASETS:
+        raise ValueError(
+            f"Tabla '{tabla}' no reconocida. Opciones: {list(DATASETS)}"
+        )
+
+    dataset_id = DATASETS[tabla]
+    where = _construir_where(filtros)
+    logger.info("Extrayendo tabla '%s' (id=%s) where=%s", tabla, dataset_id, where)
+
+    paginas: list[pd.DataFrame] = []
+    offset = 0
+    total = 0
+
+    while True:
+        limite = tamano_pagina
+        if limite_total is not None:
+            limite = min(tamano_pagina, limite_total - total)
+            if limite <= 0:
+                break
+
+        registros = cliente.get(
+            dataset_id,
+            where=where,
+            limit=limite,
+            offset=offset,
+        )
+        if not registros:
+            break
+
+        df_pagina = pd.DataFrame.from_records(registros)
+        paginas.append(df_pagina)
+
+        n = len(df_pagina)
+        total += n
+        offset += n
+        logger.info("  página descargada: %d filas (acumulado: %d)", n, total)
+
+        if n < limite:  # última página
+            break
+
+        time.sleep(0.2)  # cortesía con la API para evitar throttling
+
+    if not paginas:
+        logger.warning("La consulta no devolvió registros.")
+        return pd.DataFrame()
+
+    df = pd.concat(paginas, ignore_index=True)
+    logger.info("Extracción finalizada: %d filas, %d columnas", len(df), df.shape[1])
+    return df
