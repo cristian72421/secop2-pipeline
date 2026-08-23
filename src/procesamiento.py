@@ -62,3 +62,37 @@ def convertir_columnas_numericas(df: pd.DataFrame, columnas: list[str]) -> pd.Da
             df[col] = pd.to_numeric(df[col], errors="coerce")
             logger.info("Columna '%s' convertida a numérico", col)
     return df
+
+def eliminar_duplicados(df: pd.DataFrame, subset: list[str] | None = None) -> pd.DataFrame:
+    """
+    Elimina filas duplicadas, opcionalmente según un subconjunto de columnas
+    (por ejemplo, el identificador único del contrato o proceso).
+    """
+    antes = len(df)
+    df = df.drop_duplicates(subset=subset).reset_index(drop=True)
+    logger.info("Duplicados eliminados: %d filas (%d -> %d)", antes - len(df), antes, len(df))
+    return df
+
+def procesar(
+    df: pd.DataFrame,
+    columnas_fecha: list[str] | None = None,
+    columnas_numericas: list[str] | None = None,
+    subset_duplicados: list[str] | None = None,
+) -> pd.DataFrame:
+    """
+    Orquesta la limpieza básica: normaliza nombres de columnas, convierte
+    tipos y elimina duplicados. Devuelve un DataFrame listo para análisis.
+    """
+    if df.empty:
+        logger.warning("DataFrame vacío: no hay nada que procesar.")
+        return df
+
+    df = normalizar_nombres_columnas(df)
+    if columnas_fecha:
+        df = convertir_columnas_fecha(df, columnas_fecha)
+    if columnas_numericas:
+        df = convertir_columnas_numericas(df, columnas_numericas)
+    df = eliminar_duplicados(df, subset=subset_duplicados)
+
+    logger.info("Procesamiento finalizado: %d filas, %d columnas", len(df), df.shape[1])
+    return df
