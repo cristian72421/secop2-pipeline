@@ -35,3 +35,30 @@ def normalizar_nombres_columnas(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.columns = [limpiar(c) for c in df.columns]
     return df
+
+def convertir_columnas_fecha(
+    df: pd.DataFrame,
+    columnas: list[str],
+) -> pd.DataFrame:
+    """
+    Convierte las columnas indicadas a tipo datetime (errores -> NaT).
+    """
+    df = df.copy()
+    for col in columnas:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
+            logger.info("Columna '%s' convertida a fecha", col)
+    return df
+
+def convertir_columnas_numericas(df: pd.DataFrame, columnas: list[str]) -> pd.DataFrame:
+    """
+    Convierte las columnas indicadas a numérico (errores -> NaN).
+
+    Útil para montos como 'valor_del_contrato', que suelen venir como texto.
+    """
+    df = df.copy()
+    for col in columnas:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+            logger.info("Columna '%s' convertida a numérico", col)
+    return df
