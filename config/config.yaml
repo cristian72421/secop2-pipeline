@@ -1,0 +1,21 @@
+# Configuración del pipeline de extracción y procesamiento de SECOP 2
+
+# Tabla a extraer: contratos | procesos | integrado
+tabla: contratos
+
+# Límite total de filas (deja null para descargar todo; usa un tope para pruebas).
+limite_total: 5000
+
+# Filtros de extracción. Deja el bloque vacío ({}) para no aplicar filtros.
+filtros:
+  nombre_entidad: "INSTITUTO NACIONAL DE VIAS (INVIAS)"
+
+# Columnas a convertir a fecha.
+columnas_fecha:
+  - fecha_de_firma
+  - fecha_de_inicio_del_contrato
+  - fecha_de_fin_del_contrato
+
+# Columna identificadora para eliminar duplicados
+subset_duplicados:
+  - id_contrato

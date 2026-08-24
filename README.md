@@ -19,6 +19,37 @@ primeros entregables de la monitoría:
 2. **Parametrización** del pipeline (entidad, periodo de tiempo, entre otros).
 3. **Reporte descriptivo** de contratación a partir de los datos procesados.
 
-## Estado
+## Estructura del repositorio
 
-En construcción.
+```
+secop2-pipeline/
+├── config/
+│   └── config.yaml         # Parámetros de extracción (tabla, filtros, columnas)
+├── src/
+│   ├── extraccion.py       # Conexión y descarga desde la API de Socrata
+│   ├── procesamiento.py    # Limpieza y estandarización de los datos
+│   └── pipeline.py         # Orquestador: extrae -> procesa -> guarda
+├── data/
+│   ├── raw/                # Datos crudos (no se versionan)
+│   └── processed/          # Datos procesados de salida (no se versionan)
+├── requirements.txt
+└── README.md
+```
+
+## Instalación
+
+```bash
+python -m venv .venv
+source .venv/bin/activate        # En Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+## Uso
+
+Edita `config/config.yaml` para definir qué extraer y ejecuta:
+
+```bash
+python -m src.pipeline --config config/config.yaml
+```
+
+El resultado se guarda en `data/processed/` como un CSV con marca de tiempo.
