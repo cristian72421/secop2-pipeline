@@ -1,14 +1,25 @@
 # Configuración del pipeline de extracción y procesamiento de SECOP 2
+# Entregable 2: parametrización (entidad, periodo, etc.).
+
+# Token de aplicación de Socrata (opcional). Déjalo vacío para acceso público.
+app_token: ""
 
 # Tabla a extraer: contratos | procesos | integrado
 tabla: contratos
 
+# Tamaño de página para la paginación de la API
+tamano_pagina: 50000
+
 # Límite total de filas (deja null para descargar todo; usa un tope para pruebas).
 limite_total: 5000
 
-# Filtros de extracción. Deja el bloque vacío ({}) para no aplicar filtros.
+# Filtros de extracción (Entregable 2).
+# Deja el bloque vacío ({}) para no aplicar filtros.
 filtros:
   nombre_entidad: "INSTITUTO NACIONAL DE VIAS (INVIAS)"
+  # fecha_de_firma:
+  #   desde: "2024-01-01"
+  #   hasta: "2024-12-31"
 
 # Columnas a convertir a fecha.
 columnas_fecha:
