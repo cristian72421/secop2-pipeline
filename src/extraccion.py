@@ -10,8 +10,11 @@ Monitoría de investigación - Beca Avanza, Universidad de los Andes
 """
 
 from __future__ import annotations
+
 import logging
 import time
+from typing import Iterator
+
 import pandas as pd
 from sodapy import Socrata
 
@@ -22,11 +25,16 @@ DOMINIO = "www.datos.gov.co"
 
 # Identificadores (dataset id) de las principales tablas de SECOP II en Socrata.
 # Verificar/actualizar en https://www.datos.gov.co si cambian.
+# Tablas usadas por VigIA (Salazar, Pérez & Gallego, 2024) para construir
+# los modelos e índices de riesgo de contratación pública.
 DATASETS = {
     "contratos": "jbjy-vk9h",    # SECOP II - Contratos Electrónicos (tabla principal)
     "procesos": "p6dx-8zbt",     # SECOP II - Procesos de Contratación
+    "proveedores": "qmzu-gj57",  # SECOP II - Proveedores Registrados
+    "adiciones": "cb9c-h8sn",    # SECOP II - Adiciones (sobrecostos y prórrogas)
     "integrado": "rpmr-utcd",    # SECOP Integrado (SECOP I + II con contrato)
 }
+
 
 def crear_cliente(app_token: str | None = None, timeout: int = 60) -> Socrata:
     """
@@ -52,6 +60,7 @@ def crear_cliente(app_token: str | None = None, timeout: int = 60) -> Socrata:
     cliente = Socrata(DOMINIO, app_token, timeout=timeout)
     logger.info("Cliente Socrata creado para el dominio %s", DOMINIO)
     return cliente
+
 
 def _construir_where(filtros: dict | None) -> str | None:
     """
@@ -81,6 +90,7 @@ def _construir_where(filtros: dict | None) -> str | None:
             condiciones.append(f"{columna} = '{valor_escapado}'")
 
     return " AND ".join(condiciones) if condiciones else None
+
 
 def extraer_dataset(
     cliente: Socrata,
