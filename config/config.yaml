@@ -16,7 +16,8 @@ limite_total: 5000
 # Filtros de extracción (Entregable 2).
 # Deja el bloque vacío ({}) para no aplicar filtros.
 filtros:
-  nombre_entidad: "INSTITUTO NACIONAL DE VIAS (INVIAS)"
+  ciudad: "Bogotá"
+  sector: "Transporte"
   # fecha_de_firma:
   #   desde: "2024-01-01"
   #   hasta: "2024-12-31"
@@ -26,6 +27,12 @@ columnas_fecha:
   - fecha_de_firma
   - fecha_de_inicio_del_contrato
   - fecha_de_fin_del_contrato
+
+# Columnas de moneda a limpiar ("$13.339.049" -> 13339049.0)
+columnas_moneda:
+  - valor_del_contrato
+  - valor_pagado
+  - valor_pendiente_de_pago
 
 # Columna identificadora para eliminar duplicados
 subset_duplicados:

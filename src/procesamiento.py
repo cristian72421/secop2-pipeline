@@ -50,6 +50,30 @@ def convertir_columnas_fecha(
             logger.info("Columna '%s' convertida a fecha", col)
     return df
 
+def limpiar_columnas_moneda(df: pd.DataFrame, columnas: list[str]) -> pd.DataFrame:
+    """
+    Limpia columnas de moneda con formato colombiano y las pasa a numérico.
+
+    Ejemplo: "$13.339.049" -> 13339049.0
+
+    En SECOP II los montos vienen como texto con símbolo de peso y puntos como
+    separador de miles. Se eliminan el '$', los espacios y los puntos, y se
+    convierte a número (errores -> NaN).
+    """
+    df = df.copy()
+    for col in columnas:
+        if col in df.columns:
+            serie = (
+                df[col]
+                .astype(str)
+                .str.replace(r"[$\s]", "", regex=True)   # quitar $ y espacios
+                .str.replace(".", "", regex=False)        # quitar separador de miles
+                .str.replace(",", ".", regex=False)       # coma decimal -> punto
+            )
+            df[col] = pd.to_numeric(serie, errors="coerce")
+            logger.info("Columna de moneda '%s' limpiada y convertida", col)
+    return df
+
 def convertir_columnas_numericas(df: pd.DataFrame, columnas: list[str]) -> pd.DataFrame:
     """
     Convierte las columnas indicadas a numérico (errores -> NaN).
@@ -121,13 +145,14 @@ def procesar(
     df: pd.DataFrame,
     columnas_fecha: list[str] | None = None,
     columnas_numericas: list[str] | None = None,
+    columnas_moneda: list[str] | None = None,
     subset_duplicados: list[str] | None = None,
     pares_duraciones: dict[str, tuple[str, str]] | None = None,
 ) -> pd.DataFrame:
     """
-    Orquesta la limpieza básica: normaliza columnas, convierte tipos,
-    calcula duraciones y elimina duplicados. Devuelve un DataFrame listo
-    para análisis.
+    Orquesta la limpieza básica: normaliza columnas, convierte tipos, limpia
+    moneda, calcula duraciones y elimina duplicados. Devuelve un DataFrame
+    listo para análisis.
     """
     if df.empty:
         logger.warning("DataFrame vacío: no hay nada que procesar.")
@@ -136,6 +161,8 @@ def procesar(
     df = normalizar_nombres_columnas(df)
     if columnas_fecha:
         df = convertir_columnas_fecha(df, columnas_fecha)
+    if columnas_moneda:
+        df = limpiar_columnas_moneda(df, columnas_moneda)
     if columnas_numericas:
         df = convertir_columnas_numericas(df, columnas_numericas)
     if pares_duraciones:
