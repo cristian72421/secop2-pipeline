@@ -4,7 +4,7 @@
 # Token de aplicación de Socrata (opcional). Déjalo vacío para acceso público.
 app_token: ""
 
-# Tabla a extraer: contratos | procesos | integrado
+# Tabla a extraer: contratos | procesos | proveedores | adiciones | integrado
 tabla: contratos
 
 # Tamaño de página para la paginación de la API
@@ -30,3 +30,12 @@ columnas_fecha:
 # Columna identificadora para eliminar duplicados
 subset_duplicados:
   - id_contrato
+
+# Variables de duración entre fechas (en días), como en VigIA.
+duraciones:
+  - nombre: dias_firma_a_inicio
+    desde: fecha_de_firma
+    hasta: fecha_de_inicio_del_contrato
+  - nombre: dias_inicio_a_fin
+    desde: fecha_de_inicio_del_contrato
+    hasta: fecha_de_fin_del_contrato

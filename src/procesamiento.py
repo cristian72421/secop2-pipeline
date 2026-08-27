@@ -73,15 +73,61 @@ def eliminar_duplicados(df: pd.DataFrame, subset: list[str] | None = None) -> pd
     logger.info("Duplicados eliminados: %d filas (%d -> %d)", antes - len(df), antes, len(df))
     return df
 
+def calcular_duraciones(
+    df: pd.DataFrame,
+    pares_fechas: dict[str, tuple[str, str]],
+) -> pd.DataFrame:
+    """
+    Crea variables de duración (en días) entre pares de fechas.
+
+    Basado en las cinco fechas clave del ciclo de vida del contrato descritas
+    en VigIA (firma, inicio, inicio de ejecución, fin de ejecución, fin) y en
+    las variables derivadas como 'sign-to-start' o 'start-to-end'.
+
+    Las columnas de fecha ya deben estar convertidas a datetime (usar
+    `convertir_columnas_fecha` antes).
+
+    NOTA: algunas duraciones pueden ser negativas —por ejemplo, cuando el
+    contrato se firma después de su fecha de inicio—. Esto NO es un error: el
+    artículo lo reporta como una práctica frecuente y, de hecho, como una
+    señal (red flag) de posible ineficiencia, por lo que se conserva tal cual.
+
+    Parameters
+    ----------
+    pares_fechas : dict[str, tuple[str, str]]
+        Diccionario {nombre_nueva_columna: (fecha_inicial, fecha_final)}.
+        La duración se calcula como fecha_final - fecha_inicial, en días.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame con las nuevas columnas de duración añadidas.
+    """
+    df = df.copy()
+    for nombre, (col_ini, col_fin) in pares_fechas.items():
+        if col_ini in df.columns and col_fin in df.columns:
+            df[nombre] = (df[col_fin] - df[col_ini]).dt.days
+            logger.info(
+                "Duración '%s' = (%s - %s) creada", nombre, col_fin, col_ini
+            )
+        else:
+            faltan = [c for c in (col_ini, col_fin) if c not in df.columns]
+            logger.warning(
+                "No se pudo crear '%s': faltan columnas %s", nombre, faltan
+            )
+    return df
+
 def procesar(
     df: pd.DataFrame,
     columnas_fecha: list[str] | None = None,
     columnas_numericas: list[str] | None = None,
     subset_duplicados: list[str] | None = None,
+    pares_duraciones: dict[str, tuple[str, str]] | None = None,
 ) -> pd.DataFrame:
     """
-    Orquesta la limpieza básica: normaliza nombres de columnas, convierte
-    tipos y elimina duplicados. Devuelve un DataFrame listo para análisis.
+    Orquesta la limpieza básica: normaliza columnas, convierte tipos,
+    calcula duraciones y elimina duplicados. Devuelve un DataFrame listo
+    para análisis.
     """
     if df.empty:
         logger.warning("DataFrame vacío: no hay nada que procesar.")
@@ -92,6 +138,8 @@ def procesar(
         df = convertir_columnas_fecha(df, columnas_fecha)
     if columnas_numericas:
         df = convertir_columnas_numericas(df, columnas_numericas)
+    if pares_duraciones:
+        df = calcular_duraciones(df, pares_duraciones)
     df = eliminar_duplicados(df, subset=subset_duplicados)
 
     logger.info("Procesamiento finalizado: %d filas, %d columnas", len(df), df.shape[1])

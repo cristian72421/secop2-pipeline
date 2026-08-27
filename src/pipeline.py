@@ -68,11 +68,20 @@ def ejecutar(config: dict) -> Path:
         return DIR_PROCESADO
 
     # 3. Procesamiento (Entregable 1)
+    # Las duraciones vienen como lista de {nombre, desde, hasta} en el YAML;
+    # se convierten al formato {nombre: (desde, hasta)} que espera procesar().
+    pares_duraciones = None
+    if config.get("duraciones"):
+        pares_duraciones = {
+            d["nombre"]: (d["desde"], d["hasta"]) for d in config["duraciones"]
+        }
+
     df = procesar(
         df,
         columnas_fecha=config.get("columnas_fecha"),
         columnas_numericas=config.get("columnas_numericas"),
         subset_duplicados=config.get("subset_duplicados"),
+        pares_duraciones=pares_duraciones,
     )
 
     # 4. Guardado con timestamp para trazabilidad
