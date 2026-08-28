@@ -39,14 +39,18 @@ def normalizar_nombres_columnas(df: pd.DataFrame) -> pd.DataFrame:
 def convertir_columnas_fecha(
     df: pd.DataFrame,
     columnas: list[str],
+    formato: str | None = None,
 ) -> pd.DataFrame:
     """
     Convierte las columnas indicadas a tipo datetime (errores -> NaT).
+
+    En SECOP II las fechas vienen como MM/DD/YYYY, así que conviene pasar
+    formato="%m/%d/%Y" para una conversión correcta y rápida.
     """
     df = df.copy()
     for col in columnas:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors="coerce")
+            df[col] = pd.to_datetime(df[col], format=formato, errors="coerce")
             logger.info("Columna '%s' convertida a fecha", col)
     return df
 
@@ -148,6 +152,7 @@ def procesar(
     columnas_moneda: list[str] | None = None,
     subset_duplicados: list[str] | None = None,
     pares_duraciones: dict[str, tuple[str, str]] | None = None,
+    formato_fecha: str | None = None,
 ) -> pd.DataFrame:
     """
     Orquesta la limpieza básica: normaliza columnas, convierte tipos, limpia
@@ -160,7 +165,7 @@ def procesar(
 
     df = normalizar_nombres_columnas(df)
     if columnas_fecha:
-        df = convertir_columnas_fecha(df, columnas_fecha)
+        df = convertir_columnas_fecha(df, columnas_fecha, formato=formato_fecha)
     if columnas_moneda:
         df = limpiar_columnas_moneda(df, columnas_moneda)
     if columnas_numericas:
