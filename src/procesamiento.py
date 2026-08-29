@@ -10,12 +10,15 @@ Monitoría de investigación - Beca Avanza, Universidad de los Andes
 """
 
 from __future__ import annotations
+
 import logging
 import re
 import unicodedata
+
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
 
 def normalizar_nombres_columnas(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -36,6 +39,7 @@ def normalizar_nombres_columnas(df: pd.DataFrame) -> pd.DataFrame:
     df.columns = [limpiar(c) for c in df.columns]
     return df
 
+
 def convertir_columnas_fecha(
     df: pd.DataFrame,
     columnas: list[str],
@@ -53,6 +57,7 @@ def convertir_columnas_fecha(
             df[col] = pd.to_datetime(df[col], format=formato, errors="coerce")
             logger.info("Columna '%s' convertida a fecha", col)
     return df
+
 
 def limpiar_columnas_moneda(df: pd.DataFrame, columnas: list[str]) -> pd.DataFrame:
     """
@@ -78,6 +83,7 @@ def limpiar_columnas_moneda(df: pd.DataFrame, columnas: list[str]) -> pd.DataFra
             logger.info("Columna de moneda '%s' limpiada y convertida", col)
     return df
 
+
 def convertir_columnas_numericas(df: pd.DataFrame, columnas: list[str]) -> pd.DataFrame:
     """
     Convierte las columnas indicadas a numérico (errores -> NaN).
@@ -91,6 +97,7 @@ def convertir_columnas_numericas(df: pd.DataFrame, columnas: list[str]) -> pd.Da
             logger.info("Columna '%s' convertida a numérico", col)
     return df
 
+
 def eliminar_duplicados(df: pd.DataFrame, subset: list[str] | None = None) -> pd.DataFrame:
     """
     Elimina filas duplicadas, opcionalmente según un subconjunto de columnas
@@ -100,6 +107,7 @@ def eliminar_duplicados(df: pd.DataFrame, subset: list[str] | None = None) -> pd
     df = df.drop_duplicates(subset=subset).reset_index(drop=True)
     logger.info("Duplicados eliminados: %d filas (%d -> %d)", antes - len(df), antes, len(df))
     return df
+
 
 def calcular_duraciones(
     df: pd.DataFrame,
@@ -144,6 +152,113 @@ def calcular_duraciones(
                 "No se pudo crear '%s': faltan columnas %s", nombre, faltan
             )
     return df
+
+
+def reconciliar_por_llave(
+    df: pd.DataFrame,
+    llave: str,
+    fecha_mas_antigua: list[str] | None = None,
+) -> pd.DataFrame:
+    """
+    Reconcilia registros duplicados que comparten la misma llave.
+
+    Replica el tratamiento que VigIA aplica a la tabla de procesos: para un
+    mismo identificador de proceso pueden existir varias filas; se eliminan
+    duplicados exactos y, cuando hay conflicto en columnas de fecha, se
+    conserva la fecha más antigua.
+
+    Parameters
+    ----------
+    llave : str
+        Columna identificadora por la que se agrupa (p. ej. 'id_del_proceso').
+    fecha_mas_antigua : list[str] | None
+        Columnas de fecha en las que, ante conflicto, se conserva el valor
+        mínimo (más antiguo). El resto de columnas toma el primer valor no nulo.
+
+    Returns
+    -------
+    pd.DataFrame
+        Un registro por llave, con los conflictos reconciliados.
+    """
+    if llave not in df.columns:
+        logger.warning("Llave '%s' no está en el DataFrame; se omite.", llave)
+        return df
+
+    fecha_mas_antigua = fecha_mas_antigua or []
+    antes = len(df)
+
+    # 1. Quitar duplicados exactos en todas las columnas
+    df = df.drop_duplicates().reset_index(drop=True)
+
+    # 2. Definir cómo agregar cada columna al agrupar por la llave
+    agregaciones: dict[str, str] = {}
+    for col in df.columns:
+        if col == llave:
+            continue
+        if col in fecha_mas_antigua:
+            agregaciones[col] = "min"          # fecha más antigua
+        else:
+            agregaciones[col] = "first"        # primer valor disponible
+
+    df_reconciliado = df.groupby(llave, as_index=False).agg(agregaciones)
+    logger.info(
+        "Reconciliación por '%s': %d -> %d filas",
+        llave, antes, len(df_reconciliado),
+    )
+    return df_reconciliado
+
+
+def unir_tablas(
+    izquierda: pd.DataFrame,
+    derecha: pd.DataFrame,
+    llave_izq: str,
+    llave_der: str,
+    como: str = "left",
+    sufijos: tuple[str, str] = ("", "_der"),
+) -> pd.DataFrame:
+    """
+    Une dos tablas por sus llaves (por ejemplo, contratos con procesos).
+
+    VigIA une la tabla de contratos con la de procesos por el ID de proceso
+    para llevar al nivel de contrato variables del proceso (número de ofertas,
+    período de publicación, etc.).
+
+    Parameters
+    ----------
+    izquierda, derecha : pd.DataFrame
+        Tablas a unir.
+    llave_izq, llave_der : str
+        Columnas llave en cada tabla.
+    como : str
+        Tipo de join: 'left', 'inner', etc.
+    sufijos : tuple[str, str]
+        Sufijos para columnas con el mismo nombre en ambas tablas.
+
+    Returns
+    -------
+    pd.DataFrame
+        Tabla unida.
+    """
+    if llave_izq not in izquierda.columns or llave_der not in derecha.columns:
+        logger.warning(
+            "No se puede unir: falta llave (%s en izquierda o %s en derecha).",
+            llave_izq, llave_der,
+        )
+        return izquierda
+
+    resultado = izquierda.merge(
+        derecha,
+        left_on=llave_izq,
+        right_on=llave_der,
+        how=como,
+        suffixes=sufijos,
+    )
+    logger.info(
+        "Unión %s: %d filas resultantes (%d columnas)",
+        como, len(resultado), resultado.shape[1],
+    )
+    return resultado
+
 
 def procesar(
     df: pd.DataFrame,
