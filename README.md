@@ -28,7 +28,10 @@ secop2-pipeline/
 ├── src/
 │   ├── extraccion.py       # Conexión y descarga desde la API de Socrata
 │   ├── procesamiento.py    # Limpieza y estandarización de los datos
-│   └── pipeline.py         # Orquestador: extrae -> procesa -> guarda
+│   ├── pipeline.py         # Orquestador: extrae -> procesa -> guarda
+│   ├── procesar_csv.py     # Procesa un CSV ya descargado (sin API)
+│   └── flujo_vigia.py      # Flujo multi-tabla: contratos + procesos
+├── app.py                  # Interfaz web (Streamlit) para armar la consulta
 ├── data/
 │   ├── raw/                # Datos crudos (no se versionan)
 │   └── processed/          # Datos procesados de salida (no se versionan)
@@ -108,6 +111,20 @@ límites de la API. Una vez lo tengas, ponlo en `config.yaml`:
 ```yaml
 app_token: "TU_TOKEN_AQUI"
 ```
+
+### Interfaz web
+
+Para armar la consulta sin editar el YAML:
+
+```bash
+streamlit run app.py
+```
+
+Se abre en el navegador con los valores de `config/config.yaml` como punto de
+partida. Permite elegir la tabla, agregar filtros, definir un rango de fechas y
+fijar el tope de filas; muestra la consulta SoQL resultante antes de lanzarla,
+y al terminar deja descargar el CSV procesado y el YAML equivalente a lo
+seleccionado.
 
 ### Flujo multi-tabla (estilo VigIA)
 
