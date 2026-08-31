@@ -42,36 +42,64 @@ def convertir_columnas_fecha(
     """
     Convierte las columnas indicadas a datetime (errores -> NaT).
 
-    SECOP II entrega las fechas como MM/DD/YYYY. Sin formato explícito pandas
-    interpreta al revés las que son ambiguas y descarta el resto.
+    El formato depende de la fuente: la API entrega ISO
+    (2025-01-15T00:00:00.000) y el CSV que exporta el portal, MM/DD/YYYY. Si el
+    formato indicado deja la columna entera en NaT, se reintenta infiriendo, en
+    lugar de devolver una columna vacía sin avisar.
     """
     df = df.copy()
     for col in columnas:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], format=formato, errors="coerce")
-            logger.info("Columna '%s' convertida a fecha", col)
+        if col not in df.columns:
+            continue
+
+        original = df[col]
+        convertida = pd.to_datetime(original, format=formato, errors="coerce")
+
+        if formato and convertida.isna().all() and original.notna().any():
+            convertida = pd.to_datetime(original, errors="coerce")
+            logger.warning(
+                "Columna '%s': el formato '%s' no coincide con los datos; "
+                "se infirió el formato.", col, formato,
+            )
+
+        df[col] = convertida
+        logger.info(
+            "Columna '%s' convertida a fecha (%d sin valor de %d)",
+            col, int(convertida.isna().sum()), len(convertida),
+        )
     return df
 
 
 def limpiar_columnas_moneda(df: pd.DataFrame, columnas: list[str]) -> pd.DataFrame:
     """
-    Convierte montos en formato colombiano a numérico: "$13.339.049" -> 13339049.0
+    Convierte montos a numérico: "$13.339.049" -> 13339049.0
 
-    Los valores llegan como texto con símbolo de peso y punto de miles, así que
-    to_numeric directo los deja todos en NaN.
+    El CSV del portal trae el formato colombiano, con símbolo de peso y punto
+    de miles; la API entrega el número plano. Quitar los puntos sin mirar
+    multiplicaría por 100 un valor con decimales, así que solo se limpia lo que
+    no sea ya un número.
     """
+    patron_numero = re.compile(r"^-?\d+(\.\d+)?$")
+
     df = df.copy()
     for col in columnas:
-        if col in df.columns:
-            serie = (
-                df[col]
-                .astype(str)
-                .str.replace(r"[$\s]", "", regex=True)   # quitar $ y espacios
-                .str.replace(".", "", regex=False)        # quitar separador de miles
-                .str.replace(",", ".", regex=False)       # coma decimal -> punto
-            )
-            df[col] = pd.to_numeric(serie, errors="coerce")
-            logger.info("Columna de moneda '%s' limpiada y convertida", col)
+        if col not in df.columns:
+            continue
+
+        serie = df[col].astype(str).str.strip()
+        ya_numerica = serie.str.match(patron_numero)
+        limpia = (
+            serie
+            .str.replace(r"[$\s]", "", regex=True)   # quitar $ y espacios
+            .str.replace(".", "", regex=False)        # quitar separador de miles
+            .str.replace(",", ".", regex=False)       # coma decimal -> punto
+        )
+
+        df[col] = pd.to_numeric(serie.where(ya_numerica, limpia), errors="coerce")
+        logger.info(
+            "Columna de moneda '%s' convertida (%d ya venían como número)",
+            col, int(ya_numerica.sum()),
+        )
     return df
 
 
