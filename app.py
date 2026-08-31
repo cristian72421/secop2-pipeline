@@ -16,7 +16,14 @@ import yaml
 
 # _construir_where es privada, pero mostrar la consulta SoQL generada antes de
 # lanzarla ahorra mucho tiempo cuando un filtro no devuelve nada.
-from src.extraccion import DATASETS, _construir_where, crear_cliente, extraer_dataset
+from src.extraccion import (
+    DATASETS,
+    _construir_where,
+    crear_cliente,
+    extraer_dataset,
+    listar_columnas,
+    valores_distintos,
+)
 from src.procesamiento import procesar
 
 RAIZ = Path(__file__).resolve().parent
@@ -81,47 +88,131 @@ with st.sidebar:
     )
 
 # --------------------------------- Filtros ----------------------------------
+@st.cache_data(show_spinner="Leyendo columnas del dataset ...")
+def columnas_de(tabla: str) -> pd.DataFrame:
+    return listar_columnas(tabla)
+
+
+@st.cache_data(show_spinner="Consultando valores ...")
+def valores_de(tabla: str, columna: str, token: str) -> list[str]:
+    cliente = crear_cliente(app_token=token or None)
+    try:
+        df = valores_distintos(cliente, tabla, columna)
+    finally:
+        cliente.close()
+    if df.empty or "valor" not in df.columns:
+        return []
+    return df["valor"].dropna().astype(str).tolist()
+
+
 st.subheader("Filtros")
-st.caption(
-    "Los nombres son los de la API, no los del portal: 'Fecha de Firma' es "
-    "`fecha_de_firma`. Se combinan con AND. Sin filas, se descarga todo."
+
+try:
+    meta = columnas_de(tabla)
+except Exception as exc:
+    meta = pd.DataFrame(columns=["campo", "nombre", "tipo", "ejemplos"])
+    st.error(f"No se pudieron leer las columnas del dataset: {exc}")
+
+campos = meta["campo"].tolist()
+ejemplos_por_campo = dict(zip(meta["campo"], meta["ejemplos"])) if not meta.empty else {}
+
+with st.expander(f"Ver las {len(campos)} columnas del dataset"):
+    st.caption(
+        "`campo` es el nombre que entiende la API; `nombre` es el que se ve en "
+        "el portal. Los filtros usan el primero."
+    )
+    if not meta.empty:
+        st.dataframe(meta.assign(ejemplos=meta["ejemplos"].str.join(" · ")))
+
+consultar_api = st.checkbox(
+    "Consultar los valores reales en la API",
+    help=(
+        "Sin marcar, las opciones de valor salen de los ejemplos que el portal "
+        "tiene en caché. Marcado, se consulta la lista completa: es exacto pero "
+        "lento, y en columnas con muchos valores distintos no aporta."
+    ),
 )
 
 filtros_cfg = cfg.get("filtros") or {}
-filas_iniciales = [
-    {"columna": k, "valor": v}
-    for k, v in filtros_cfg.items()
-    if not isinstance(v, dict)
-] or [{"columna": "", "valor": ""}]
+if "filas_filtro" not in st.session_state:
+    st.session_state.filas_filtro = [
+        {"columna": k, "valor": str(v)}
+        for k, v in filtros_cfg.items()
+        if not isinstance(v, dict)
+    ] or [{"columna": "", "valor": ""}]
 
-editor = st.data_editor(
-    pd.DataFrame(filas_iniciales),
-    num_rows="dynamic",
-    column_config={
-        "columna": st.column_config.TextColumn("Columna"),
-        "valor": st.column_config.TextColumn("Valor (igualdad exacta)"),
-    },
-    key="editor_filtros",
-)
+SIN_FILTRO = "— sin filtro —"
+A_MANO = "— escribir a mano —"
 
-# Rango de fechas: lo maneja aparte porque genera >= y <=, no igualdad.
+quitar = None
+for i, fila in enumerate(st.session_state.filas_filtro):
+    c1, c2, c3 = st.columns([3, 3, 0.5])
+    visible = "visible" if i == 0 else "collapsed"
+
+    opciones_col = [SIN_FILTRO] + campos
+    idx = opciones_col.index(fila["columna"]) if fila["columna"] in opciones_col else 0
+    columna = c1.selectbox("Columna", opciones_col, index=idx,
+                           key=f"f_col_{i}", label_visibility=visible)
+
+    valor = ""
+    if columna != SIN_FILTRO:
+        if consultar_api:
+            try:
+                opciones_val = valores_de(tabla, columna, app_token)
+            except Exception as exc:
+                opciones_val = []
+                c2.warning(f"No se pudieron consultar los valores: {exc}")
+        else:
+            opciones_val = ejemplos_por_campo.get(columna, [])
+
+        lista = [A_MANO] + opciones_val
+        idx_v = lista.index(fila["valor"]) if fila["valor"] in lista else 0
+        elegido = c2.selectbox("Valor", lista, index=idx_v,
+                               key=f"f_val_{i}", label_visibility=visible)
+        if elegido == A_MANO:
+            valor = c2.text_input("Valor exacto", value=fila["valor"],
+                                  key=f"f_txt_{i}", label_visibility="collapsed",
+                                  placeholder="Escribe el valor tal cual aparece")
+        else:
+            valor = elegido
+
+    st.session_state.filas_filtro[i] = {"columna": columna, "valor": valor}
+    if i == 0:
+        c3.write("")
+    if c3.button("✕", key=f"f_del_{i}", help="Quitar esta fila"):
+        quitar = i
+
+if quitar is not None and len(st.session_state.filas_filtro) > 1:
+    st.session_state.filas_filtro.pop(quitar)
+    st.rerun()
+
+if st.button("+ Agregar filtro"):
+    st.session_state.filas_filtro.append({"columna": "", "valor": ""})
+    st.rerun()
+
+# Rango de fechas: aparte, porque genera >= y <= en vez de igualdad.
+campos_fecha = (
+    meta.loc[meta["tipo"].isin(["calendar_date", "floating_timestamp", "date"]), "campo"].tolist()
+    if not meta.empty else []
+) or campos
+
 rango_cfg = next(
     ((k, v) for k, v in filtros_cfg.items() if isinstance(v, dict)), (None, {})
 )
 col_a, col_b, col_c = st.columns([2, 1, 1])
 with col_a:
     usar_rango = st.checkbox("Filtrar por rango de fechas", value=rango_cfg[0] is not None)
-    col_fecha = st.text_input(
-        "Columna de fecha", value=rango_cfg[0] or "fecha_de_firma", disabled=not usar_rango
+    idx_f = campos_fecha.index(rango_cfg[0]) if rango_cfg[0] in campos_fecha else 0
+    col_fecha = st.selectbox(
+        "Columna de fecha", campos_fecha or ["fecha_de_firma"],
+        index=idx_f, disabled=not usar_rango,
     )
 with col_b:
-    desde = st.text_input(
-        "Desde (AAAA-MM-DD)", value=(rango_cfg[1] or {}).get("desde", ""), disabled=not usar_rango
-    )
+    desde = st.text_input("Desde (AAAA-MM-DD)", value=(rango_cfg[1] or {}).get("desde", ""),
+                          disabled=not usar_rango)
 with col_c:
-    hasta = st.text_input(
-        "Hasta (AAAA-MM-DD)", value=(rango_cfg[1] or {}).get("hasta", ""), disabled=not usar_rango
-    )
+    hasta = st.text_input("Hasta (AAAA-MM-DD)", value=(rango_cfg[1] or {}).get("hasta", ""),
+                          disabled=not usar_rango)
 
 # ------------------------------ Procesamiento -------------------------------
 with st.expander("Procesamiento (columnas a limpiar)"):
@@ -148,9 +239,9 @@ with st.expander("Procesamiento (columnas a limpiar)"):
 
 # --------------------------- Consulta y ejecución ---------------------------
 filtros: dict = {}
-for fila in editor.to_dict("records"):
-    col, val = str(fila.get("columna") or "").strip(), str(fila.get("valor") or "").strip()
-    if col and val:
+for fila in st.session_state.filas_filtro:
+    col, val = fila["columna"], str(fila["valor"]).strip()
+    if col and col != SIN_FILTRO and val:
         filtros[col] = val
 if usar_rango and col_fecha and (desde or hasta):
     rango = {}
@@ -180,8 +271,9 @@ if st.button("Extraer", type="primary"):
         if df.empty:
             barra.empty()
             st.warning(
-                "La consulta no devolvió filas. Suele ser un nombre de columna "
-                "o un valor que no coincide exactamente con el del dataset."
+                "La consulta no devolvió filas: la combinación de filtros no "
+                "existe en el dataset. Marca 'Consultar los valores reales en "
+                "la API' para ver qué valores tiene realmente cada columna."
             )
             st.session_state.resultado = None
         else:

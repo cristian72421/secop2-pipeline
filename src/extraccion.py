@@ -10,11 +10,13 @@ import logging
 import time
 
 import pandas as pd
+import requests
 from sodapy import Socrata
 
 logger = logging.getLogger(__name__)
 
 DOMINIO = "www.datos.gov.co"
+URL_METADATOS = "https://www.datos.gov.co/api/views/{dataset_id}.json"
 
 # Dataset ids de SECOP II en Socrata. Pueden cambiar: si una tabla deja de
 # responder, el id se reconfirma en datos.gov.co. Las cuatro primeras son las
@@ -38,6 +40,66 @@ def crear_cliente(app_token: str | None = None, timeout: int = 60) -> Socrata:
     cliente = Socrata(DOMINIO, app_token, timeout=timeout)
     logger.info("Cliente Socrata creado para el dominio %s", DOMINIO)
     return cliente
+
+
+def listar_columnas(tabla: str) -> pd.DataFrame:
+    """
+    Columnas de una tabla según los metadatos del portal.
+
+    Devuelve el nombre de campo que espera SoQL (que no es el que se ve en la
+    web), el nombre visible, el tipo y los valores más frecuentes que el portal
+    mantiene en caché. Sirve para no adivinar nombres al armar los filtros.
+    """
+    if tabla not in DATASETS:
+        raise ValueError(f"Tabla '{tabla}' no reconocida. Opciones: {list(DATASETS)}")
+
+    url = URL_METADATOS.format(dataset_id=DATASETS[tabla])
+    respuesta = requests.get(url, timeout=60)
+    respuesta.raise_for_status()
+
+    filas = []
+    for col in respuesta.json().get("columns", []):
+        campo = col.get("fieldName") or ""
+        if campo.startswith(":"):  # columnas internas de Socrata
+            continue
+        cache = (col.get("cachedContents") or {}).get("top") or []
+        filas.append({
+            "campo": campo,
+            "nombre": col.get("name"),
+            "tipo": col.get("dataTypeName"),
+            "ejemplos": [str(v.get("item")) for v in cache[:15] if v.get("item") is not None],
+        })
+
+    logger.info("Metadatos de '%s': %d columnas", tabla, len(filas))
+    return pd.DataFrame(filas)
+
+
+def valores_distintos(
+    cliente: Socrata,
+    tabla: str,
+    columna: str,
+    limite: int = 300,
+) -> pd.DataFrame:
+    """
+    Valores distintos de una columna, con su número de registros.
+
+    Es un group by sobre toda la tabla, así que en columnas de alta
+    cardinalidad (identificadores, objetos de contrato) es lento y poco útil.
+    """
+    if tabla not in DATASETS:
+        raise ValueError(f"Tabla '{tabla}' no reconocida. Opciones: {list(DATASETS)}")
+
+    registros = cliente.get(
+        DATASETS[tabla],
+        select=f"{columna} AS valor, count(*) AS n",
+        group=columna,
+        order="n DESC",
+        limit=limite,
+    )
+    df = pd.DataFrame.from_records(registros)
+    if not df.empty and "n" in df.columns:
+        df["n"] = pd.to_numeric(df["n"], errors="coerce")
+    return df
 
 
 def _construir_where(filtros: dict | None) -> str | None:
