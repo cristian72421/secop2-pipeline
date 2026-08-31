@@ -125,11 +125,12 @@ with st.expander(f"Ver las {len(campos)} columnas del dataset"):
         st.dataframe(meta.assign(ejemplos=meta["ejemplos"].str.join(" · ")))
 
 consultar_api = st.checkbox(
-    "Consultar los valores reales en la API",
+    "Consultar los valores reales de todas las columnas",
     help=(
-        "Sin marcar, las opciones de valor salen de los ejemplos que el portal "
-        "tiene en caché. Marcado, se consulta la lista completa: es exacto pero "
-        "lento, y en columnas con muchos valores distintos no aporta."
+        "Por defecto las opciones salen de los valores que el portal tiene en "
+        "caché, que no cubren todas las columnas. Marcado, se consulta la lista "
+        "completa de cada columna elegida: es exacto pero lento. Para una sola "
+        "columna conviene más el botón 'Cargar valores' que aparece debajo."
     ),
 )
 
@@ -140,6 +141,9 @@ if "filas_filtro" not in st.session_state:
         for k, v in filtros_cfg.items()
         if not isinstance(v, dict)
     ] or [{"columna": "", "valor": ""}]
+
+if "cols_consultadas" not in st.session_state:
+    st.session_state.cols_consultadas = set()
 
 SIN_FILTRO = "— sin filtro —"
 A_MANO = "— escribir a mano —"
@@ -156,14 +160,16 @@ for i, fila in enumerate(st.session_state.filas_filtro):
 
     valor = ""
     if columna != SIN_FILTRO:
-        if consultar_api:
+        cacheados = ejemplos_por_campo.get(columna, [])
+        consultar_esta = consultar_api or columna in st.session_state.cols_consultadas
+
+        opciones_val = cacheados
+        if consultar_esta:
             try:
                 opciones_val = valores_de(tabla, columna, app_token)
             except Exception as exc:
-                opciones_val = []
+                opciones_val = cacheados
                 c2.warning(f"No se pudieron consultar los valores: {exc}")
-        else:
-            opciones_val = ejemplos_por_campo.get(columna, [])
 
         lista = [A_MANO] + opciones_val
         idx_v = lista.index(fila["valor"]) if fila["valor"] in lista else 0
@@ -175,6 +181,15 @@ for i, fila in enumerate(st.session_state.filas_filtro):
                                   placeholder="Escribe el valor tal cual aparece")
         else:
             valor = elegido
+
+        # El portal solo cachea valores para algunas columnas; en las tablas
+        # grandes casi ninguna los trae. Ahí se consultan a pedido, por columna,
+        # en vez de obligar a activar la consulta para todas.
+        if not opciones_val and not consultar_esta:
+            c2.caption("Sin valores en caché para esta columna.")
+            if c2.button("Cargar valores", key=f"f_load_{i}"):
+                st.session_state.cols_consultadas.add(columna)
+                st.rerun()
 
     st.session_state.filas_filtro[i] = {"columna": columna, "valor": valor}
     if i == 0:
