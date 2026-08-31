@@ -19,7 +19,7 @@ import logging
 from pathlib import Path
 
 from src.extraccion import crear_cliente, extraer_dataset
-from src.pipeline import cargar_config
+from src.pipeline import cargar_config, token_efectivo
 from src.procesamiento import (
     convertir_columnas_fecha,
     calcular_duraciones,
@@ -55,7 +55,7 @@ DURACIONES = {
 
 def construir_base_contratos(config: dict, limite: int | None = 5000):
     """Extrae, procesa y une contratos con procesos al nivel de contrato."""
-    cliente = crear_cliente(app_token=config.get("app_token") or None)
+    cliente = crear_cliente(app_token=token_efectivo(config))
     try:
         contratos = extraer_dataset(cliente, "contratos", limite_total=limite)
         procesos = extraer_dataset(cliente, "procesos", limite_total=limite)

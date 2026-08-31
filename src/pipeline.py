@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +30,28 @@ RAIZ = Path(__file__).resolve().parents[1]
 DIR_PROCESADO = RAIZ / "data" / "processed"
 
 
+# Comentario que acompaña a cada clave al reescribir el YAML, para que el
+# archivo siga siendo legible cuando lo genera la interfaz y no solo una mano.
+COMENTARIOS_CONFIG = {
+    "app_token": (
+        "Token de Socrata. Se deja vacío a propósito: el repositorio es "
+        "público.\n# Se puede pasar por la variable de entorno SECOP_APP_TOKEN."
+    ),
+    "tabla": "contratos | procesos | proveedores | adiciones | integrado",
+    "tamano_pagina": "Filas por petición a la API",
+    "limite_total": "Tope de filas a descargar. null = todo lo que devuelva el filtro.",
+    "filtros": "Filtros de extracción. Bloque vacío ({}) = sin filtrar.",
+    "columnas_fecha": "Columnas a convertir a fecha",
+    "formato_fecha": (
+        "Formato de fecha de la fuente. La API entrega ISO y el CSV del "
+        "portal, MM/DD/YYYY;\n# si no coincide, el pipeline lo infiere."
+    ),
+    "columnas_moneda": 'Montos en formato colombiano ("$13.339.049" -> 13339049.0)',
+    "subset_duplicados": "Columna identificadora para eliminar duplicados",
+    "duraciones": "Duraciones en días entre fechas clave del contrato",
+}
+
+
 def cargar_config(ruta: str | Path) -> dict:
     """Lee el YAML de configuración y lo devuelve como diccionario."""
     with open(ruta, "r", encoding="utf-8") as f:
@@ -37,9 +60,51 @@ def cargar_config(ruta: str | Path) -> dict:
     return config
 
 
+def token_efectivo(config: dict) -> str | None:
+    """
+    App token a usar: primero el del YAML, si no la variable de entorno.
+
+    Permite trabajar con token sin escribirlo en un archivo versionado.
+    """
+    return config.get("app_token") or os.getenv("SECOP_APP_TOKEN") or None
+
+
+def guardar_config(config: dict, ruta: str | Path) -> Path:
+    """
+    Reescribe el YAML de configuración conservando los comentarios.
+
+    yaml.safe_dump los borraría, así que cada clave se vuelca por separado
+    precedida de su comentario. El app_token nunca se escribe: se guarda vacío
+    aunque venga con valor, para no filtrarlo al repositorio.
+    """
+    a_guardar = dict(config)
+    a_guardar["app_token"] = ""
+
+    partes = [
+        "# Parámetros del pipeline de SECOP 2.",
+        "# Lo puede reescribir la interfaz (app.py) o editarse a mano.",
+        "",
+    ]
+    for clave, comentario in COMENTARIOS_CONFIG.items():
+        if clave not in a_guardar:
+            continue
+        partes.append(f"# {comentario}")
+        volcado = yaml.safe_dump(
+            {clave: a_guardar[clave]}, allow_unicode=True, sort_keys=False,
+            default_flow_style=False,
+        )
+        partes.append(volcado.rstrip())
+        partes.append("")
+
+    ruta = Path(ruta)
+    ruta.write_text("\n".join(partes), encoding="utf-8")
+    logger.info("Configuración guardada en %s", ruta)
+    return ruta
+
+
 def ejecutar(config: dict) -> Path:
     """Ejecuta el pipeline completo con los parámetros dados y guarda el CSV."""
-    cliente = crear_cliente(app_token=config.get("app_token") or None)
+    cliente = crear_cliente(app_token=token_efectivo(config))
 
     try:
         df = extraer_dataset(

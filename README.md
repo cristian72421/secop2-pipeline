@@ -106,10 +106,11 @@ por ejemplo `secop2_contratos_20260825_140501.csv`.
 
 El acceso es público, pero registrar un
 [app token de Socrata](https://dev.socrata.com/docs/app-tokens.html) mejora los
-límites de la API. Una vez lo tengas, ponlo en `config.yaml`:
+límites de la API. Como este repositorio es público, el token no se guarda en
+`config.yaml`: se pasa por variable de entorno.
 
-```yaml
-app_token: "TU_TOKEN_AQUI"
+```bash
+export SECOP_APP_TOKEN="tu_token"        # En Windows: $env:SECOP_APP_TOKEN="tu_token"
 ```
 
 ### Interfaz web

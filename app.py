@@ -24,6 +24,7 @@ from src.extraccion import (
     listar_columnas,
     valores_distintos,
 )
+from src.pipeline import guardar_config
 from src.procesamiento import procesar
 
 RAIZ = Path(__file__).resolve().parent
@@ -347,8 +348,8 @@ if res:
 # --------------------------- Exportar la selección --------------------------
 with st.expander("Guardar esta configuración"):
     st.caption(
-        "Genera el YAML equivalente a lo seleccionado arriba. Se descarga "
-        "aparte en vez de sobrescribir config/config.yaml, que tiene comentarios."
+        "El YAML equivalente a lo seleccionado arriba. Se puede escribir sobre "
+        "config/config.yaml o descargar aparte."
     )
     cfg_actual = {
         "app_token": app_token,
@@ -364,5 +365,24 @@ with st.expander("Guardar esta configuración"):
     }
     yaml_texto = yaml.safe_dump(cfg_actual, allow_unicode=True, sort_keys=False)
     st.code(yaml_texto, language="yaml")
-    st.download_button("Descargar config.yaml", data=yaml_texto.encode("utf-8"),
+
+    b1, b2 = st.columns(2)
+    if b1.button("Guardar en config/config.yaml", type="primary"):
+        try:
+            guardar_config(cfg_actual, RUTA_CONFIG)
+            st.success(
+                "Guardado en config/config.yaml. El archivo está versionado: "
+                "`git diff` muestra el cambio y `git checkout` lo revierte."
+            )
+        except Exception as exc:
+            st.error(f"No se pudo guardar: {exc}")
+
+    b2.download_button("Descargar aparte", data=yaml_texto.encode("utf-8"),
                        file_name="config.yaml", mime="text/yaml")
+
+    if app_token:
+        st.info(
+            "El app token no se escribe en el archivo: el repositorio es "
+            "público. Para usarlo sin pegarlo cada vez, defínelo como variable "
+            "de entorno `SECOP_APP_TOKEN` antes de lanzar la app."
+        )
