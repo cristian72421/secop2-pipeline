@@ -1,12 +1,7 @@
 """
-Módulo de procesamiento y limpieza de los datos de SECOP 2.
+Limpieza y estandarización de los datos de SECOP 2.
 
-Parte del Entregable 1: procesamiento de los datos extraídos.
-Aquí se estandarizan tipos, se normalizan nombres de columnas y se hacen
-limpiezas básicas para dejar la data lista para análisis.
-
-Autor: Cristian Camilo Rodríguez Cagüeñas
-Monitoría de investigación - Beca Avanza, Universidad de los Andes
+Monitoría de investigación - Beca Avanza, Universidad de los Andes.
 """
 
 from __future__ import annotations
@@ -22,15 +17,14 @@ logger = logging.getLogger(__name__)
 
 def normalizar_nombres_columnas(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Normaliza los nombres de columnas: minúsculas, sin tildes, sin espacios.
+    Pasa los nombres a snake_case sin tildes: 'Valor del Contrato' -> 'valor_del_contrato'.
 
-    Ej.: 'Valor del Contrato' -> 'valor_del_contrato'
+    El portal devuelve los nombres con tildes, mayúsculas y espacios, que no
+    sirven para referenciarlos desde la configuración.
     """
     def limpiar(nombre: str) -> str:
-        # quitar tildes
         nfkd = unicodedata.normalize("NFKD", nombre)
         sin_tilde = "".join(c for c in nfkd if not unicodedata.combining(c))
-        # minúsculas, espacios y no alfanuméricos -> guión bajo
         s = sin_tilde.strip().lower()
         s = re.sub(r"[^\w]+", "_", s)
         return s.strip("_")
@@ -46,10 +40,10 @@ def convertir_columnas_fecha(
     formato: str | None = None,
 ) -> pd.DataFrame:
     """
-    Convierte las columnas indicadas a tipo datetime (errores -> NaT).
+    Convierte las columnas indicadas a datetime (errores -> NaT).
 
-    En SECOP II las fechas vienen como MM/DD/YYYY, así que conviene pasar
-    formato="%m/%d/%Y" para una conversión correcta y rápida.
+    SECOP II entrega las fechas como MM/DD/YYYY. Sin formato explícito pandas
+    interpreta al revés las que son ambiguas y descarta el resto.
     """
     df = df.copy()
     for col in columnas:
@@ -61,13 +55,10 @@ def convertir_columnas_fecha(
 
 def limpiar_columnas_moneda(df: pd.DataFrame, columnas: list[str]) -> pd.DataFrame:
     """
-    Limpia columnas de moneda con formato colombiano y las pasa a numérico.
+    Convierte montos en formato colombiano a numérico: "$13.339.049" -> 13339049.0
 
-    Ejemplo: "$13.339.049" -> 13339049.0
-
-    En SECOP II los montos vienen como texto con símbolo de peso y puntos como
-    separador de miles. Se eliminan el '$', los espacios y los puntos, y se
-    convierte a número (errores -> NaN).
+    Los valores llegan como texto con símbolo de peso y punto de miles, así que
+    to_numeric directo los deja todos en NaN.
     """
     df = df.copy()
     for col in columnas:
@@ -85,11 +76,7 @@ def limpiar_columnas_moneda(df: pd.DataFrame, columnas: list[str]) -> pd.DataFra
 
 
 def convertir_columnas_numericas(df: pd.DataFrame, columnas: list[str]) -> pd.DataFrame:
-    """
-    Convierte las columnas indicadas a numérico (errores -> NaN).
-
-    Útil para montos como 'valor_del_contrato', que suelen venir como texto.
-    """
+    """Convierte las columnas indicadas a numérico (errores -> NaN)."""
     df = df.copy()
     for col in columnas:
         if col in df.columns:
@@ -99,10 +86,7 @@ def convertir_columnas_numericas(df: pd.DataFrame, columnas: list[str]) -> pd.Da
 
 
 def eliminar_duplicados(df: pd.DataFrame, subset: list[str] | None = None) -> pd.DataFrame:
-    """
-    Elimina filas duplicadas, opcionalmente según un subconjunto de columnas
-    (por ejemplo, el identificador único del contrato o proceso).
-    """
+    """Elimina filas duplicadas, opcionalmente según un subconjunto de columnas."""
     antes = len(df)
     df = df.drop_duplicates(subset=subset).reset_index(drop=True)
     logger.info("Duplicados eliminados: %d filas (%d -> %d)", antes - len(df), antes, len(df))
@@ -114,30 +98,15 @@ def calcular_duraciones(
     pares_fechas: dict[str, tuple[str, str]],
 ) -> pd.DataFrame:
     """
-    Crea variables de duración (en días) entre pares de fechas.
+    Crea variables de duración en días entre pares de fechas del contrato.
 
-    Basado en las cinco fechas clave del ciclo de vida del contrato descritas
-    en VigIA (firma, inicio, inicio de ejecución, fin de ejecución, fin) y en
-    las variables derivadas como 'sign-to-start' o 'start-to-end'.
+    pares_fechas es {nombre_nueva_columna: (fecha_inicial, fecha_final)} y la
+    duración se calcula como fecha_final - fecha_inicial. Las columnas de fecha
+    tienen que estar ya convertidas a datetime.
 
-    Las columnas de fecha ya deben estar convertidas a datetime (usar
-    `convertir_columnas_fecha` antes).
-
-    NOTA: algunas duraciones pueden ser negativas —por ejemplo, cuando el
-    contrato se firma después de su fecha de inicio—. Esto NO es un error: el
-    artículo lo reporta como una práctica frecuente y, de hecho, como una
-    señal (red flag) de posible ineficiencia, por lo que se conserva tal cual.
-
-    Parameters
-    ----------
-    pares_fechas : dict[str, tuple[str, str]]
-        Diccionario {nombre_nueva_columna: (fecha_inicial, fecha_final)}.
-        La duración se calcula como fecha_final - fecha_inicial, en días.
-
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame con las nuevas columnas de duración añadidas.
+    Las duraciones negativas se conservan a propósito: un contrato firmado
+    después de su fecha de inicio no es un error de datos, es una señal de
+    riesgo que hay que poder contar (VigIA la reporta como red flag).
     """
     df = df.copy()
     for nombre, (col_ini, col_fin) in pares_fechas.items():
@@ -160,25 +129,12 @@ def reconciliar_por_llave(
     fecha_mas_antigua: list[str] | None = None,
 ) -> pd.DataFrame:
     """
-    Reconcilia registros duplicados que comparten la misma llave.
+    Deja un registro por llave, resolviendo los conflictos entre duplicados.
 
-    Replica el tratamiento que VigIA aplica a la tabla de procesos: para un
-    mismo identificador de proceso pueden existir varias filas; se eliminan
-    duplicados exactos y, cuando hay conflicto en columnas de fecha, se
-    conserva la fecha más antigua.
-
-    Parameters
-    ----------
-    llave : str
-        Columna identificadora por la que se agrupa (p. ej. 'id_del_proceso').
-    fecha_mas_antigua : list[str] | None
-        Columnas de fecha en las que, ante conflicto, se conserva el valor
-        mínimo (más antiguo). El resto de columnas toma el primer valor no nulo.
-
-    Returns
-    -------
-    pd.DataFrame
-        Un registro por llave, con los conflictos reconciliados.
+    Un mismo proceso puede aparecer en varias filas con datos distintos. Se
+    quitan los duplicados exactos y, en las columnas de fecha listadas en
+    fecha_mas_antigua, se conserva el valor mínimo; el resto toma el primer
+    valor disponible. Es el tratamiento que VigIA aplica a la tabla de procesos.
     """
     if llave not in df.columns:
         logger.warning("Llave '%s' no está en el DataFrame; se omite.", llave)
@@ -187,10 +143,8 @@ def reconciliar_por_llave(
     fecha_mas_antigua = fecha_mas_antigua or []
     antes = len(df)
 
-    # 1. Quitar duplicados exactos en todas las columnas
     df = df.drop_duplicates().reset_index(drop=True)
 
-    # 2. Definir cómo agregar cada columna al agrupar por la llave
     agregaciones: dict[str, str] = {}
     for col in df.columns:
         if col == llave:
@@ -217,27 +171,10 @@ def unir_tablas(
     sufijos: tuple[str, str] = ("", "_der"),
 ) -> pd.DataFrame:
     """
-    Une dos tablas por sus llaves (por ejemplo, contratos con procesos).
+    Une dos tablas por sus llaves.
 
-    VigIA une la tabla de contratos con la de procesos por el ID de proceso
-    para llevar al nivel de contrato variables del proceso (número de ofertas,
-    período de publicación, etc.).
-
-    Parameters
-    ----------
-    izquierda, derecha : pd.DataFrame
-        Tablas a unir.
-    llave_izq, llave_der : str
-        Columnas llave en cada tabla.
-    como : str
-        Tipo de join: 'left', 'inner', etc.
-    sufijos : tuple[str, str]
-        Sufijos para columnas con el mismo nombre en ambas tablas.
-
-    Returns
-    -------
-    pd.DataFrame
-        Tabla unida.
+    Sirve para llevar al nivel de contrato las variables del proceso (número de
+    ofertas, período de publicación), que es la unidad de análisis.
     """
     if llave_izq not in izquierda.columns or llave_der not in derecha.columns:
         logger.warning(
@@ -270,9 +207,9 @@ def procesar(
     formato_fecha: str | None = None,
 ) -> pd.DataFrame:
     """
-    Orquesta la limpieza básica: normaliza columnas, convierte tipos, limpia
-    moneda, calcula duraciones y elimina duplicados. Devuelve un DataFrame
-    listo para análisis.
+    Encadena los pasos de limpieza en un único punto de entrada.
+
+    Cada paso es opcional: si no se pasan columnas, se salta.
     """
     if df.empty:
         logger.warning("DataFrame vacío: no hay nada que procesar.")

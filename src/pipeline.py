@@ -1,17 +1,9 @@
 """
-Orquestador del pipeline de extracción y procesamiento de SECOP 2.
+Orquestador del pipeline: configuración -> extracción -> procesamiento -> CSV.
 
-Une los tres pasos del flujo:
-  1. Lee la configuración (config/config.yaml)  -> parametrización (Entregable 2)
-  2. Extrae los datos de SECOP 2 vía Socrata     -> extracción (Entregable 1)
-  3. Procesa/limpia los datos                    -> procesamiento (Entregable 1)
-  4. Guarda el resultado en data/processed
-
-Uso:
     python -m src.pipeline --config config/config.yaml
 
-Autor: Cristian Camilo Rodríguez Cagüeñas
-Monitoría de investigación - Beca Avanza, Universidad de los Andes
+Monitoría de investigación - Beca Avanza, Universidad de los Andes.
 """
 
 from __future__ import annotations
@@ -33,13 +25,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("pipeline")
 
-# Directorios base del proyecto
 RAIZ = Path(__file__).resolve().parents[1]
 DIR_PROCESADO = RAIZ / "data" / "processed"
 
 
 def cargar_config(ruta: str | Path) -> dict:
-    """Lee el archivo YAML de configuración y lo devuelve como diccionario."""
+    """Lee el YAML de configuración y lo devuelve como diccionario."""
     with open(ruta, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
     logger.info("Configuración cargada desde %s", ruta)
@@ -48,11 +39,9 @@ def cargar_config(ruta: str | Path) -> dict:
 
 def ejecutar(config: dict) -> Path:
     """Ejecuta el pipeline completo con los parámetros dados y guarda el CSV."""
-    # 1. Cliente
     cliente = crear_cliente(app_token=config.get("app_token") or None)
 
     try:
-        # 2. Extracción (Entregable 1 + parametrización del Entregable 2)
         df = extraer_dataset(
             cliente,
             tabla=config.get("tabla", "contratos"),
@@ -67,9 +56,8 @@ def ejecutar(config: dict) -> Path:
         logger.warning("No se extrajeron datos. Revisa los filtros de config.")
         return DIR_PROCESADO
 
-    # 3. Procesamiento (Entregable 1)
-    # Las duraciones vienen como lista de {nombre, desde, hasta} en el YAML;
-    # se convierten al formato {nombre: (desde, hasta)} que espera procesar().
+    # En el YAML las duraciones son una lista de {nombre, desde, hasta};
+    # procesar() las espera como {nombre: (desde, hasta)}.
     pares_duraciones = None
     if config.get("duraciones"):
         pares_duraciones = {
@@ -84,7 +72,7 @@ def ejecutar(config: dict) -> Path:
         pares_duraciones=pares_duraciones,
     )
 
-    # 4. Guardado con timestamp para trazabilidad
+    # marca de tiempo en el nombre para no pisar corridas anteriores
     DIR_PROCESADO.mkdir(parents=True, exist_ok=True)
     marca = datetime.now().strftime("%Y%m%d_%H%M%S")
     tabla = config.get("tabla", "contratos")

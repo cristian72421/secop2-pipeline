@@ -1,23 +1,15 @@
 """
-Ejemplo de flujo multi-tabla al estilo VigIA (Salazar, Pérez & Gallego, 2024).
+Flujo multi-tabla: arma la base al nivel de contrato uniendo contratos y procesos.
 
-Muestra cómo combinar las tablas de SECOP 2 para llevar todo al nivel de
-contrato, que es la unidad de análisis del proyecto:
+    contratos --(id_proceso)--> procesos (reconciliados)
+    contratos --(duraciones entre fechas clave)
 
-    contratos  --(id_proceso)-->  procesos (reconciliados)
-    contratos  --(duraciones entre fechas clave)
+Es el insumo del reporte descriptivo y, más adelante, de los modelos e índices
+de riesgo. Replica el tratamiento de VigIA (Salazar, Pérez y Gallego, 2024).
 
-Este script deja la base lista sobre la que luego se construirán el reporte
-descriptivo (Entregable 3) y, más adelante, los modelos e índices de riesgo.
-
-Uso:
     python -m src.flujo_vigia --config config/config.yaml
 
-Nota: ajusta los nombres de columna (llaves y fechas) según lo que devuelvan
-los datasets reales; verifícalos con notebooks/01_exploracion.ipynb.
-
-Autor: Cristian Camilo Rodríguez Cagüeñas
-Monitoría de investigación - Beca Avanza, Universidad de los Andes
+Monitoría de investigación - Beca Avanza, Universidad de los Andes.
 """
 
 from __future__ import annotations
@@ -45,8 +37,9 @@ logger = logging.getLogger("flujo_vigia")
 
 RAIZ = Path(__file__).resolve().parents[1]
 
-# --- Nombres de columna esperados (AJUSTAR según los datasets reales) ---
-LLAVE_PROCESO = "id_del_proceso"           # llave para unir contratos y procesos
+# Nombres de columna esperados. Cambian entre datasets, así que hay que
+# confirmarlos contra los datos reales (notebooks/01_exploracion.ipynb).
+LLAVE_PROCESO = "id_del_proceso"
 FECHAS_CONTRATO = [
     "fecha_de_firma",
     "fecha_de_inicio_del_contrato",
@@ -64,7 +57,6 @@ def construir_base_contratos(config: dict, limite: int | None = 5000):
     """Extrae, procesa y une contratos con procesos al nivel de contrato."""
     cliente = crear_cliente(app_token=config.get("app_token") or None)
     try:
-        # 1. Extraer contratos y procesos
         contratos = extraer_dataset(cliente, "contratos", limite_total=limite)
         procesos = extraer_dataset(cliente, "procesos", limite_total=limite)
     finally:
@@ -74,21 +66,16 @@ def construir_base_contratos(config: dict, limite: int | None = 5000):
         logger.warning("No se extrajeron contratos.")
         return contratos
 
-    # 2. Normalizar nombres y convertir fechas
     contratos = normalizar_nombres_columnas(contratos)
     contratos = convertir_columnas_fecha(contratos, FECHAS_CONTRATO)
-
-    # 3. Calcular duraciones entre fechas clave (red flags como firma tardía)
     contratos = calcular_duraciones(contratos, DURACIONES)
 
     if not procesos.empty:
         procesos = normalizar_nombres_columnas(procesos)
         procesos = convertir_columnas_fecha(procesos, [FECHA_PUBLICACION])
-        # 4. Reconciliar procesos duplicados (conservar fecha más antigua)
         procesos = reconciliar_por_llave(
             procesos, LLAVE_PROCESO, fecha_mas_antigua=[FECHA_PUBLICACION]
         )
-        # 5. Unir al nivel de contrato
         contratos = unir_tablas(
             contratos, procesos, LLAVE_PROCESO, LLAVE_PROCESO, como="left"
         )

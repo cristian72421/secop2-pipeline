@@ -1,18 +1,12 @@
 """
-Procesa un CSV de SECOP 2 ya descargado desde el portal (sin llamar a la API).
+Aplica la limpieza del pipeline a un CSV de SECOP 2 ya descargado, sin usar la API.
 
-Útil cuando ya tienes el archivo (por ejemplo, descargado manualmente con un
-filtro desde datos.gov.co) y solo quieres aplicarle la limpieza y las
-variables derivadas del pipeline.
+Para descargas grandes sale más práctico bajar el archivo filtrado desde el
+portal y correr solo la parte de transformación.
 
-Uso:
-    python -m src.procesar_csv --entrada ruta/al/archivo.csv
+    python -m src.procesar_csv --entrada data/raw/archivo.csv
 
-    # opcional: indicar otra carpeta de salida
-    python -m src.procesar_csv --entrada datos.csv --salida data/processed
-
-Autor: Cristian Camilo Rodríguez Cagüeñas
-Monitoría de investigación - Beca Avanza, Universidad de los Andes
+Monitoría de investigación - Beca Avanza, Universidad de los Andes.
 """
 
 from __future__ import annotations
@@ -35,14 +29,14 @@ logger = logging.getLogger("procesar_csv")
 
 RAIZ = Path(__file__).resolve().parents[1]
 
-# --- Parámetros de procesamiento para SECOP II - Contratos Electrónicos ---
-# (nombres ya normalizados: minúsculas, sin tildes, con guión bajo)
+# Parámetros para SECOP II - Contratos Electrónicos, con los nombres ya
+# normalizados (minúsculas, sin tildes, guión bajo).
 COLUMNAS_FECHA = [
     "fecha_de_firma",
     "fecha_de_inicio_del_contrato",
     "fecha_de_fin_del_contrato",
 ]
-FORMATO_FECHA = "%m/%d/%Y"  # SECOP II entrega las fechas como MM/DD/YYYY
+FORMATO_FECHA = "%m/%d/%Y"
 
 COLUMNAS_MONEDA = [
     "valor_del_contrato",
@@ -72,12 +66,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # 1. Leer el CSV descargado
     logger.info("Leyendo %s ...", args.entrada)
     df = pd.read_csv(args.entrada, low_memory=False)
     logger.info("Entrada: %d filas, %d columnas", len(df), df.shape[1])
 
-    # 2. Procesar (normaliza, convierte fechas/moneda, calcula duraciones, dedup)
     limpio = procesar(
         df,
         columnas_fecha=COLUMNAS_FECHA,
@@ -87,7 +79,6 @@ def main() -> None:
         pares_duraciones=DURACIONES,
     )
 
-    # 3. Guardar con marca de tiempo
     carpeta = Path(args.salida)
     carpeta.mkdir(parents=True, exist_ok=True)
     marca = datetime.now().strftime("%Y%m%d_%H%M%S")

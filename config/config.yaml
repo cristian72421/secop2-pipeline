@@ -1,21 +1,19 @@
-# Configuración del pipeline de extracción y procesamiento de SECOP 2
-# Entregable 2: parametrización (entidad, periodo, etc.).
-# Ajustado a los nombres REALES de columnas de SECOP II - Contratos Electrónicos.
+# Parámetros del pipeline de SECOP 2. Ajustados a los nombres reales de
+# columnas de SECOP II - Contratos Electrónicos.
 
-# Token de aplicación de Socrata (opcional). Déjalo vacío para acceso público.
+# Token de aplicación de Socrata. Vacío = acceso público con límites más bajos.
 app_token: ""
 
-# Tabla a extraer: contratos | procesos | proveedores | adiciones | integrado
+# contratos | procesos | proveedores | adiciones | integrado
 tabla: contratos
 
-# Tamaño de página para la paginación de la API
+# Filas por petición a la API
 tamano_pagina: 50000
 
-# Límite total de filas (deja null para descargar todo; usa un tope para pruebas).
+# Tope de filas a descargar. null = todo lo que devuelva el filtro.
 limite_total: 5000
 
-# Filtros de extracción (Entregable 2). Nombres de columna del dataset real.
-# Deja el bloque vacío ({}) para no aplicar filtros.
+# Filtros de extracción. Bloque vacío ({}) = sin filtrar.
 filtros:
   ciudad: "Bogotá"
   sector: "Transporte"
@@ -29,10 +27,9 @@ columnas_fecha:
   - fecha_de_inicio_del_contrato
   - fecha_de_fin_del_contrato
 
-# Formato de las fechas del dataset (mes/día/año).
 formato_fecha: "%m/%d/%Y"
 
-# Columnas de moneda a limpiar ("$13.339.049" -> 13339049.0)
+# Montos en formato colombiano ("$13.339.049" -> 13339049.0)
 columnas_moneda:
   - valor_del_contrato
   - valor_pagado
@@ -42,7 +39,7 @@ columnas_moneda:
 subset_duplicados:
   - id_contrato
 
-# Variables de duración entre fechas (en días), como en VigIA.
+# Duraciones en días entre fechas clave del contrato
 duraciones:
   - nombre: dias_firma_a_inicio
     desde: fecha_de_firma
