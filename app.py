@@ -28,6 +28,7 @@ from src.extraccion import (
     listar_columnas,
     valores_distintos,
 )
+from src import indicadores as ind
 from src.flujo_vigia import construir_base_contratos
 from src.pipeline import (
     borrar_consulta,
@@ -46,6 +47,12 @@ DIR_PROCESADO = RAIZ / "data" / "processed"
 # Un solo color para todas las gráficas: cada una muestra una sola serie, así
 # que varios colores no codificarían nada.
 COLOR = "#2E7D32"
+
+# Par para las gráficas que separan lo normal de lo señalado. Validado con el
+# comprobador de paletas: separación suficiente también para daltonismo, en
+# modo claro y oscuro.
+COLOR_NORMAL = "#3E7CC0"
+COLOR_ALERTA = "#C4661F"
 
 SIN_FILTRO = "— sin filtro —"
 OTRO_VALOR = "— otro valor —"
@@ -570,7 +577,7 @@ else:
             + ", ".join(f"`{c}`" for c in faltantes)
         )
 
-    t1, t2 = st.tabs(["Datos", "Resumen"])
+    t1, t2, t3 = st.tabs(["Datos", "Resumen", "Indicadores de riesgo"])
 
     with t1:
         seleccion = st.multiselect(
@@ -666,8 +673,102 @@ else:
         numericas = df.select_dtypes("number")
         if not numericas.empty:
             with st.expander("Estadísticas de las columnas numéricas"):
-                resumen = numericas.describe().T
-                st.dataframe(resumen.style.format(formato_pesos))
+                estadisticas = numericas.describe().T
+                st.dataframe(estadisticas.style.format(formato_pesos))
+
+    with t3:
+        st.caption(
+            "Indicadores descriptivos siguiendo los red flags de VigIA. "
+            "**Ninguno prueba una irregularidad por sí solo**: varios son el "
+            "comportamiento normal de ciertas modalidades, y por eso se "
+            "presentan desagregados."
+        )
+
+        cifras = ind.resumen(df)
+        k = st.columns(5)
+        k[0].metric("Contratos", f"{cifras['contratos']:,}".replace(",", "."))
+        if cifras["valor_total"] is not None:
+            div, uni = escala_monetaria(cifras["valor_total"])
+            k[1].metric(f"Valor ({uni})", f"{cifras['valor_total'] / div:,.1f}".replace(",", "."))
+        for celda, clave, etiqueta in (
+            (k[2], "pct_directa", "Contratación directa"),
+            (k[3], "pct_con_prorroga", "Con prórroga"),
+            (k[4], "pct_firma_tardia", "Firma tras iniciar"),
+        ):
+            if cifras[clave] is not None:
+                celda.metric(etiqueta, f"{cifras[clave]:.1f}%")
+
+        modalidad = ind.por_modalidad(df)
+        if not modalidad.empty:
+            st.markdown("#### Modalidad de contratación")
+            st.caption(
+                "Las dos gráficas rara vez coinciden: una modalidad puede "
+                "dominar en número de contratos y ser marginal en dinero."
+            )
+            m1, m2 = st.columns(2)
+            with m1:
+                st.bar_chart(modalidad["contratos"].head(8).sort_values(),
+                             color=COLOR_NORMAL, horizontal=True, height=280,
+                             x_label="Contratos", y_label="")
+            with m2:
+                div, uni = escala_monetaria(modalidad["valor"].max())
+                st.bar_chart((modalidad["valor"] / div).head(8).sort_values(),
+                             color=COLOR_NORMAL, horizontal=True, height=280,
+                             x_label=f"Valor ({uni} de pesos)", y_label="")
+
+        firma = ind.distribucion_firma_a_inicio(df)
+        if not firma.empty:
+            st.markdown("#### Días entre la firma y el inicio")
+            st.caption(
+                "Una duración negativa significa que el contrato se firmó "
+                "después de haber empezado. Se conserva porque es la señal, "
+                "no un error de datos."
+            )
+            st.bar_chart(firma, height=260, x_label="", y_label="Contratos",
+                         color=[COLOR_ALERTA, COLOR_NORMAL])
+
+        ofertas = ind.ofertas_por_modalidad(df)
+        if not ofertas.empty:
+            st.markdown("#### Ofertas recibidas, por modalidad")
+            st.caption(
+                "La tabla que evita el falso positivo más común: cero ofertas "
+                "es lo normal en contratación directa, donde no hay "
+                "convocatoria, y anómalo en una licitación pública."
+            )
+            st.dataframe(ofertas)
+
+        conc = ind.concentracion_proveedores(df)
+        if conc:
+            st.markdown("#### Concentración de proveedores")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Proveedores distintos", f"{conc['proveedores']:,}".replace(",", "."))
+            if conc["pct_contratos"] is not None:
+                c2.metric("Top 10: contratos", f"{conc['pct_contratos']:.1f}%")
+            if conc["pct_valor"] is not None:
+                c3.metric("Top 10: valor", f"{conc['pct_valor']:.1f}%")
+            tabla_prov = conc["tabla"].copy()
+            div, uni = escala_monetaria(tabla_prov["valor"].max())
+            tabla_prov["valor"] = (tabla_prov["valor"] / div).round(2)
+            st.dataframe(tabla_prov.rename(columns={"valor": f"valor ({uni})"}))
+
+        valores = ind.distribucion_valores(df)
+        if not valores.empty:
+            st.markdown("#### Distribución de valores")
+            st.caption(
+                "Por tramos de orden de magnitud: en escala lineal un contrato "
+                "de miles de millones aplasta a todos los demás."
+            )
+            st.bar_chart(valores, color=COLOR_NORMAL, horizontal=True, height=280,
+                         x_label="Contratos", y_label="")
+
+        calidad = ind.calidad_datos(df)
+        if not calidad.empty:
+            st.markdown("#### Revisiones de calidad")
+            st.caption(
+                "Registros que conviene mirar antes de calcular estadísticas. "
+                "No se corrige nada automáticamente."
+            )
+            st.dataframe(calidad, hide_index=True)
 
 # --------------------------- Guardar la selección ---------------------------
 st.divider()
