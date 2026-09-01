@@ -36,7 +36,7 @@ from src.pipeline import (
     guardar_consulta,
     leer_log,
 )
-from src.procesamiento import procesar
+from src.procesamiento import columnas_comparables, procesar
 
 RAIZ = Path(__file__).resolve().parent
 RUTA_CONFIG = RAIZ / "config" / "config.yaml"
@@ -570,8 +570,10 @@ else:
                              x_label="Mes", y_label=col_montos[0])
 
         # Categóricas: solo las que tienen un número de valores legible.
+        # columnas_comparables descarta las que llegan como diccionario: nunique
+        # y value_counts fallan sobre ellas.
         candidatas = [
-            c for c in df.columns
+            c for c in columnas_comparables(df)
             if df[c].dtype == object and 1 < df[c].nunique(dropna=True) <= 60
         ]
         if candidatas:

@@ -18,6 +18,20 @@ logger = logging.getLogger(__name__)
 PATRON_NUMERO = re.compile(r"^-?\d+(\.\d+)?$")
 
 
+def columnas_comparables(df: pd.DataFrame) -> list[str]:
+    """
+    Columnas cuyos valores se pueden comparar entre sí.
+
+    Socrata entrega algunas como diccionarios —las de tipo URL o ubicación— y
+    esas rompen cualquier operación que necesite valores únicos:
+    drop_duplicates, nunique, value_counts.
+    """
+    return [
+        col for col in df.columns
+        if not df[col].map(lambda v: isinstance(v, (dict, list))).any()
+    ]
+
+
 def normalizar_nombres_columnas(df: pd.DataFrame) -> pd.DataFrame:
     """
     Pasa los nombres a snake_case sin tildes: 'Valor del Contrato' -> 'valor_del_contrato'.
@@ -165,14 +179,7 @@ def reconciliar_por_llave(
     # Dos pasos: primero se quitan las filas idénticas entre sí, y solo después
     # se agrupa, para que la agregación resuelva únicamente los casos en que la
     # misma llave trae datos distintos.
-    #
-    # Socrata entrega algunas columnas como diccionarios (las de tipo URL o
-    # ubicación) y esas no se pueden comparar, así que quedan fuera del cotejo.
-    comparables = [
-        col for col in df.columns
-        if not df[col].map(lambda v: isinstance(v, (dict, list))).any()
-    ]
-    df = df.drop_duplicates(subset=comparables).reset_index(drop=True)
+    df = df.drop_duplicates(subset=columnas_comparables(df)).reset_index(drop=True)
 
     agregaciones = {
         col: ("min" if col in fecha_mas_antigua else "first")
