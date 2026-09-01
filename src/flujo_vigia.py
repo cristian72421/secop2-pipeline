@@ -1,7 +1,7 @@
 """
 Flujo multi-tabla: arma la base al nivel de contrato uniendo contratos y procesos.
 
-    contratos --(id_proceso)--> procesos (reconciliados)
+    contratos --(llave del proceso)--> procesos (reconciliados)
     contratos --(duraciones entre fechas clave)
 
 Es el insumo del reporte descriptivo y, más adelante, de los modelos e índices
@@ -18,7 +18,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from src.extraccion import crear_cliente, extraer_dataset
+from src.extraccion import crear_cliente, extraer_dataset, listar_columnas
 from src.pipeline import cargar_config, configurar_logging, token_efectivo
 from src.procesamiento import (
     convertir_columnas_fecha,
@@ -32,9 +32,10 @@ logger = logging.getLogger("flujo_vigia")
 
 RAIZ = Path(__file__).resolve().parents[1]
 
-# Nombres de columna esperados. Cambian entre datasets, así que hay que
-# confirmarlos contra los datos reales (notebooks/01_exploracion.ipynb).
-LLAVE_PROCESO = "id_del_proceso"
+# La llave que relaciona las dos tablas se llama distinto en cada una.
+LLAVE_CONTRATOS = "proceso_de_compra"
+LLAVE_PROCESOS = "id_del_proceso"
+
 FECHAS_CONTRATO = [
     "fecha_de_firma",
     "fecha_de_inicio_del_contrato",
@@ -48,12 +49,74 @@ DURACIONES = {
 }
 
 
+def _restar_meses(fecha: str, meses: int) -> str:
+    """
+    Retrocede una fecha 'AAAA-MM-DD' un número de meses, al día 1.
+
+    Se usa el día 1 para no tener que lidiar con meses de distinta duración.
+    """
+    anio, mes, _ = (int(parte) for parte in fecha.split("-"))
+    total = anio * 12 + (mes - 1) - meses
+    anio_nuevo, mes_nuevo = divmod(total, 12)
+    return f"{anio_nuevo:04d}-{mes_nuevo + 1:02d}-01"
+
+
+def filtros_para_procesos(
+    filtros: dict,
+    columnas_procesos: set[str],
+    margen_meses: int,
+) -> dict:
+    """
+    Adapta a la tabla de procesos los filtros escritos para contratos.
+
+    Hace dos ajustes:
+
+    1. El rango de fechas se traslada a la fecha de publicación del proceso y se
+       corre hacia atrás `margen_meses`. Un proceso siempre precede al contrato
+       que origina, así que filtrar ambas tablas al mismo periodo dejaría sin
+       proceso a los contratos del comienzo de la ventana.
+    2. Los demás filtros solo se conservan si esa columna existe en procesos;
+       las tablas no tienen las mismas columnas y un nombre inexistente hace
+       fallar la consulta.
+    """
+    adaptados: dict = {}
+
+    for columna, valor in filtros.items():
+        if isinstance(valor, dict):  # rango de fechas
+            rango = dict(valor)
+            if rango.get("desde"):
+                rango["desde"] = _restar_meses(rango["desde"], margen_meses)
+            adaptados[FECHA_PUBLICACION] = rango
+            logger.info(
+                "Procesos: se busca desde %s (%d meses antes que los contratos)",
+                rango.get("desde"), margen_meses,
+            )
+        elif columna in columnas_procesos:
+            adaptados[columna] = valor
+        else:
+            logger.info(
+                "Filtro '%s' no aplica a procesos: la columna no existe ahí.", columna
+            )
+
+    return adaptados
+
+
 def construir_base_contratos(config: dict, limite: int | None = 5000):
     """Extrae, procesa y une contratos con procesos al nivel de contrato."""
+    filtros = config.get("filtros") or {}
+    margen_meses = int(config.get("margen_meses_procesos", 6))
+
     cliente = crear_cliente(app_token=token_efectivo(config))
     try:
-        contratos = extraer_dataset(cliente, "contratos", limite_total=limite)
-        procesos = extraer_dataset(cliente, "procesos", limite_total=limite)
+        contratos = extraer_dataset(
+            cliente, "contratos", filtros=filtros or None, limite_total=limite,
+        )
+
+        columnas_procesos = set(listar_columnas("procesos")["campo"])
+        filtros_procesos = filtros_para_procesos(filtros, columnas_procesos, margen_meses)
+        procesos = extraer_dataset(
+            cliente, "procesos", filtros=filtros_procesos or None, limite_total=limite,
+        )
     finally:
         cliente.close()
 
@@ -65,15 +128,35 @@ def construir_base_contratos(config: dict, limite: int | None = 5000):
     contratos = convertir_columnas_fecha(contratos, FECHAS_CONTRATO)
     contratos = calcular_duraciones(contratos, DURACIONES)
 
-    if not procesos.empty:
-        procesos = normalizar_nombres_columnas(procesos)
-        procesos = convertir_columnas_fecha(procesos, [FECHA_PUBLICACION])
-        procesos = reconciliar_por_llave(
-            procesos, LLAVE_PROCESO, fecha_mas_antigua=[FECHA_PUBLICACION]
+    if procesos.empty:
+        logger.warning("No se extrajeron procesos: la base queda solo con contratos.")
+        return contratos
+
+    procesos = normalizar_nombres_columnas(procesos)
+    procesos = convertir_columnas_fecha(procesos, [FECHA_PUBLICACION])
+    procesos = reconciliar_por_llave(
+        procesos, LLAVE_PROCESOS, fecha_mas_antigua=[FECHA_PUBLICACION]
+    )
+
+    # Antes de unir, medir cuántos contratos encuentran su proceso. Es la única
+    # forma de notar que la unión no sirvió: si la llave no coincide, unir_tablas
+    # devuelve los contratos intactos y el resultado parece correcto.
+    if LLAVE_CONTRATOS in contratos.columns and LLAVE_PROCESOS in procesos.columns:
+        con_proceso = contratos[LLAVE_CONTRATOS].isin(procesos[LLAVE_PROCESOS]).sum()
+        logger.info(
+            "Contratos que encuentran su proceso: %d de %d (%.1f%%)",
+            con_proceso, len(contratos), 100 * con_proceso / len(contratos),
         )
-        contratos = unir_tablas(
-            contratos, procesos, LLAVE_PROCESO, LLAVE_PROCESO, como="left"
-        )
+        if con_proceso == 0:
+            logger.warning(
+                "Ningún contrato cruzó con un proceso. Revisar los nombres de "
+                "llave ('%s' en contratos, '%s' en procesos) o ampliar el margen "
+                "de meses.", LLAVE_CONTRATOS, LLAVE_PROCESOS,
+            )
+
+    contratos = unir_tablas(
+        contratos, procesos, LLAVE_CONTRATOS, LLAVE_PROCESOS, como="left"
+    )
 
     logger.info(
         "Base de contratos lista: %d filas, %d columnas",

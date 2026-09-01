@@ -258,9 +258,31 @@ python -m src.procesar_csv --entrada data/raw/archivo.csv
 
 Construye la base al nivel de contrato uniendo contratos con procesos: extrae
 ambas tablas, calcula duraciones, reconcilia los procesos y une por el
-identificador del proceso.
+identificador del proceso. Es el insumo del reporte descriptivo.
 
-Es el archivo que produciría el insumo del reporte descriptivo.
+**La llave se llama distinto en cada tabla:** `proceso_de_compra` en contratos e
+`id_del_proceso` en procesos.
+
+**Los filtros se adaptan, no se copian.** `filtros_para_procesos()` toma los
+filtros escritos para contratos y hace dos ajustes:
+
+- El rango de fechas se traslada a la fecha de publicación del proceso y **se
+  corre hacia atrás** los meses que indique `margen_meses_procesos` (6 por
+  defecto). Un proceso publicado en noviembre puede producir un contrato firmado
+  en enero; filtrar ambas tablas al mismo periodo dejaría sin proceso a los
+  contratos del comienzo de la ventana, y ese sesgo no sería aleatorio.
+- Los demás filtros se conservan solo si esa columna existe en procesos. Las dos
+  tablas no tienen las mismas columnas, y pedir una que no existe hace fallar la
+  consulta.
+
+**Antes de unir se cuenta cuántos contratos encuentran su proceso**, y se avisa
+si son cero. Sin esa cuenta, una llave equivocada pasa desapercibida: la unión
+devuelve los contratos intactos y el resultado parece correcto.
+
+Queda pendiente una mejora: en vez de una ventana con margen, extraer los
+contratos primero y consultar únicamente los procesos cuyos identificadores
+aparezcan ahí. Es exacto y no descarta nada, pero necesita una cláusula `IN` que
+el constructor de filtros todavía no soporta.
 
 ---
 
@@ -331,6 +353,7 @@ Un ejemplo de lo que queda guardado:
 | `formato_fecha` | Formato de la fuente; se infiere si no coincide |
 | `columnas_moneda` | Cuáles limpiar como monto |
 | `duraciones` | Qué variables de días construir |
+| `margen_meses_procesos` | Solo para `flujo_vigia`: cuántos meses antes buscar los procesos |
 
 **Advertencia:** las claves de limpieza están escritas para la tabla de
 contratos. Al cambiar `tabla` hay que revisarlas, porque las columnas de
@@ -379,10 +402,11 @@ que sí resuelve conflictos, se conserva porque responde a otro problema.
 
 **Sin resolver:**
 
-1. **`flujo_vigia.py` no funciona.** Une por `id_del_proceso`, pero en contratos
-   la columna es `proceso_de_compra`; la unión falla en silencio. Además ignora
-   el bloque `filtros`, así que descarga los primeros N contratos y los primeros
-   N procesos del país entero, sin relación entre sí.
+1. **`flujo_vigia.py` no se ha probado contra la API.** La llave y los filtros
+   están corregidos, pero falta confirmar contra datos reales que la columna de
+   procesos se llame `id_del_proceso` y la de publicación `fecha_de_publicacion`.
+   El registro dirá cuántos contratos cruzaron; si son cero, hay que ajustar
+   esos dos nombres.
 2. **No hay pruebas automatizadas.** El error de las fechas se habría detectado
    con unas pocas líneas de prueba.
 3. **El constructor de filtros es limitado**: sin `LIKE`, sin `IN`, sin

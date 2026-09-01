@@ -21,6 +21,10 @@ filtros:
   #   desde: "2024-01-01"
   #   hasta: "2024-12-31"
 
+# Solo para flujo_vigia: cuántos meses antes se buscan los procesos. El proceso
+# siempre precede al contrato, así que su ventana tiene que empezar antes.
+margen_meses_procesos: 6
+
 # Columnas a convertir a fecha. En SECOP II vienen como MM/DD/YYYY.
 columnas_fecha:
   - fecha_de_firma

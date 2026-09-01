@@ -82,6 +82,9 @@ COMENTARIOS_CONFIG = {
     "tamano_pagina": "Filas por petición a la API",
     "limite_total": "Tope de filas a descargar. null = todo lo que devuelva el filtro.",
     "filtros": "Filtros de extracción. Bloque vacío ({}) = sin filtrar.",
+    "margen_meses_procesos": (
+        "Solo para flujo_vigia: cuántos meses antes se buscan los procesos"
+    ),
     "columnas_fecha": "Columnas a convertir a fecha",
     "formato_fecha": (
         "Formato de fecha de la fuente. La API entrega ISO y el CSV del "
