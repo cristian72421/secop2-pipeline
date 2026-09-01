@@ -131,6 +131,46 @@ def _construir_where(filtros: dict | None) -> str | None:
     return " AND ".join(condiciones) if condiciones else None
 
 
+def contar_filas(cliente: Socrata, tabla: str, filtros: dict | None = None) -> int:
+    """
+    Cuántas filas devolvería la consulta, sin descargarlas.
+
+    Es una sola petición y evita esperar una descarga completa para descubrir
+    que el filtro no devuelve nada, o que devuelve millones y el tope de filas
+    está entregando una muestra arbitraria.
+    """
+    if tabla not in DATASETS:
+        raise ValueError(f"Tabla '{tabla}' no reconocida. Opciones: {list(DATASETS)}")
+
+    registros = cliente.get(
+        DATASETS[tabla], select="count(*) AS n", where=_construir_where(filtros),
+    )
+    total = int(registros[0]["n"]) if registros else 0
+    logger.info("La consulta a '%s' devolvería %d filas", tabla, total)
+    return total
+
+
+def diagnosticar_filtros(cliente: Socrata, tabla: str, filtros: dict) -> pd.DataFrame:
+    """
+    Cuenta las filas que devuelve cada filtro por separado.
+
+    Cuando la combinación no devuelve nada, el responsable es el filtro que ya
+    por sí solo da cero. Sin esto hay que ir quitando filtros a mano hasta dar
+    con el culpable.
+    """
+    filas = []
+    for columna, valor in filtros.items():
+        if isinstance(valor, dict):
+            descripcion = f"{columna}: {valor.get('desde', '...')} a {valor.get('hasta', '...')}"
+        else:
+            descripcion = f"{columna} = {valor}"
+        filas.append({
+            "filtro": descripcion,
+            "filas": contar_filas(cliente, tabla, {columna: valor}),
+        })
+    return pd.DataFrame(filas)
+
+
 def extraer_dataset(
     cliente: Socrata,
     tabla: str,

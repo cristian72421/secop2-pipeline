@@ -29,6 +29,7 @@ secop2-pipeline/
 ├── app.py                    Interfaz web (Streamlit)
 ├── .streamlit/config.toml    Tema de la interfaz
 ├── config/config.yaml        Parámetros: qué extraer y cómo limpiarlo
+├── config/consultas.yaml     Consultas guardadas con nombre
 ├── src/
 │   ├── extraccion.py         Todo lo que habla con la API  (E)
 │   ├── procesamiento.py      Todo lo que transforma datos  (T)
@@ -311,7 +312,16 @@ Lo que aporta sobre el YAML:
   filas, ver la consulta generada dice de inmediato si el problema es el nombre
   de la columna o el valor.
 - **Avisa de columnas inexistentes** tras procesar.
-- **Guarda la configuración** de vuelta al YAML o la descarga aparte.
+- **Guarda la configuración** de vuelta al YAML, la descarga aparte, o la
+  guarda con un nombre en `config/consultas.yaml` para volver a ella desde la
+  barra lateral.
+- **Cuenta antes de descargar.** Una sola consulta dice cuántas filas devolvería
+  el filtro, y avisa si el resultado supera el tope de filas — en ese caso lo
+  que se trae es una parte, no el conjunto.
+- **Diagnostica los resultados vacíos.** Cuando no hay filas, cuenta cada filtro
+  por separado y muestra cuál es el que da cero. Es el procedimiento manual de
+  ir quitando filtros, hecho automáticamente.
+- **Muestra el registro** de la última corrida, sin salir a buscar la terminal.
 
 ```powershell
 streamlit run app.py

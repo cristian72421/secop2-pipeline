@@ -20,13 +20,22 @@ import yaml
 from src.extraccion import (
     DATASETS,
     _construir_where,
+    contar_filas,
     crear_cliente,
+    diagnosticar_filtros,
     extraer_dataset,
     listar_columnas,
     valores_distintos,
 )
 from src.flujo_vigia import construir_base_contratos
-from src.pipeline import configurar_logging, guardar_config
+from src.pipeline import (
+    borrar_consulta,
+    cargar_consultas,
+    configurar_logging,
+    guardar_config,
+    guardar_consulta,
+    leer_log,
+)
 from src.procesamiento import procesar
 
 RAIZ = Path(__file__).resolve().parent
@@ -120,9 +129,32 @@ def selector_de_valor(contenedor, opciones: list[str], actual: str, clave: str, 
         )
 
 
+def aplicar_consulta(consulta: dict) -> None:
+    """
+    Carga una consulta guardada en el formulario.
+
+    Hay que borrar las claves de los controles: Streamlit recuerda lo que el
+    usuario eligió y eso ganaría sobre los valores nuevos.
+    """
+    for clave in list(st.session_state):
+        if clave.startswith(("f_col_", "f_val_", "f_txt_", "f_load_", "rango_", "sel_")):
+            del st.session_state[clave]
+    st.session_state.consulta_cargada = consulta
+    st.session_state.filas_filtro = [
+        {"columna": k, "valor": str(v)}
+        for k, v in (consulta.get("filtros") or {}).items()
+        if not isinstance(v, dict)
+    ] or [{"columna": "", "valor": ""}]
+    st.rerun()
+
+
 cfg = cargar_defaults()
 st.session_state.setdefault("resultado", None)
 st.session_state.setdefault("cols_consultadas", set())
+st.session_state.setdefault("consulta_cargada", None)
+
+# Los valores iniciales salen de la consulta cargada si hay una; si no, del YAML.
+base = st.session_state.consulta_cargada or cfg
 
 
 # --------------------------------- Cabecera ---------------------------------
@@ -133,10 +165,23 @@ st.caption(
 )
 
 with st.sidebar:
+    consultas = cargar_consultas()
+    if consultas:
+        st.header("CONSULTAS GUARDADAS")
+        elegida = st.selectbox("Abrir", ["—"] + sorted(consultas), key="sel_guardada")
+        g1, g2 = st.columns(2)
+        if g1.button("Cargar", disabled=elegida == "—"):
+            aplicar_consulta(consultas[elegida])
+        if g2.button("Borrar", disabled=elegida == "—"):
+            borrar_consulta(elegida)
+            st.rerun()
+        st.divider()
+
     st.header("FUENTE")
+    modos = ["Una tabla", "Contratos + procesos"]
     modo = st.radio(
-        "Qué construir",
-        ["Una tabla", "Contratos + procesos"],
+        "Qué construir", modos, key="sel_modo",
+        index=modos.index(base.get("modo")) if base.get("modo") in modos else 0,
         captions=[
             "Extrae y limpia una sola tabla.",
             "Une contratos con sus procesos: agrega ofertas, precio base y "
@@ -152,19 +197,19 @@ with st.sidebar:
     else:
         tabla = st.selectbox(
             "Tabla", tablas,
-            index=tablas.index(cfg.get("tabla", "contratos"))
-            if cfg.get("tabla") in tablas else 0,
+            index=tablas.index(base.get("tabla", "contratos"))
+            if base.get("tabla") in tablas else 0, key="sel_tabla",
         )
     st.caption(f"Dataset: `{DATASETS[tabla]}`")
 
     st.header("ALCANCE")
-    sin_tope = st.toggle("Traer todo", value=cfg.get("limite_total") is None,
+    sin_tope = st.toggle("Traer todo", value=base.get("limite_total") is None, key="sel_tope",
                          help="Sin tope de filas. Puede tardar bastante.")
     limite_total = None
     if not sin_tope:
         limite_total = st.number_input(
             "Máximo de filas", min_value=1, max_value=5_000_000,
-            value=int(cfg.get("limite_total") or 5000), step=1000,
+            value=int(base.get("limite_total") or 5000), step=1000, key="sel_limite",
         )
     app_token = st.text_input(
         "App token de Socrata", value=cfg.get("app_token", ""), type="password",
@@ -195,7 +240,7 @@ except Exception as exc:
 campos = meta["campo"].tolist()
 ejemplos_por_campo = dict(zip(meta["campo"], meta["ejemplos"])) if not meta.empty else {}
 
-filtros_cfg = cfg.get("filtros") or {}
+filtros_cfg = base.get("filtros") or {}
 if "filas_filtro" not in st.session_state:
     st.session_state.filas_filtro = [
         {"columna": k, "valor": str(v)}
@@ -254,17 +299,17 @@ campos_fecha = (
 
 rango_cfg = next(((k, v) for k, v in filtros_cfg.items() if isinstance(v, dict)), (None, {}))
 st.write("")
-usar_rango = st.toggle("Acotar por rango de fechas", value=rango_cfg[0] is not None)
+usar_rango = st.toggle("Acotar por rango de fechas", value=rango_cfg[0] is not None, key="rango_on")
 if usar_rango:
     f1, f2, f3 = st.columns(3)
     col_fecha = f1.selectbox(
         "Columna de fecha", campos_fecha or ["fecha_de_firma"],
-        index=campos_fecha.index(rango_cfg[0]) if rango_cfg[0] in campos_fecha else 0,
+        index=campos_fecha.index(rango_cfg[0]) if rango_cfg[0] in campos_fecha else 0, key="rango_col",
     )
     desde = f2.text_input("Desde", value=(rango_cfg[1] or {}).get("desde", ""),
-                          placeholder="2025-01-01")
+                          placeholder="2025-01-01", key="rango_desde")
     hasta = f3.text_input("Hasta", value=(rango_cfg[1] or {}).get("hasta", ""),
-                          placeholder="2025-12-31")
+                          placeholder="2025-12-31", key="rango_hasta")
 else:
     col_fecha, desde, hasta = "", "", ""
 
@@ -312,7 +357,39 @@ with st.expander("Ver la consulta que se va a enviar", expanded=not filtros):
             "tabla de procesos, con los filtros adaptados."
         )
 
-if st.button("Extraer datos", type="primary", icon=":material/download:"):
+e1, e2 = st.columns([1, 1])
+
+if e2.button("¿Cuántas filas hay?", icon=":material/pin:",
+             help="Una sola consulta, sin descargar los datos."):
+    try:
+        cliente = crear_cliente(app_token=app_token or None)
+        try:
+            total = contar_filas(cliente, tabla, filtros or None)
+        finally:
+            cliente.close()
+
+        if total == 0:
+            st.error("Esa combinación de filtros no devuelve ninguna fila.")
+            if filtros:
+                st.caption("Filtro por filtro, para ver cuál es el que sobra:")
+                cliente = crear_cliente(app_token=app_token or None)
+                try:
+                    st.dataframe(diagnosticar_filtros(cliente, tabla, filtros), hide_index=True)
+                finally:
+                    cliente.close()
+        elif limite_total and total > limite_total:
+            st.warning(
+                f"La consulta devuelve **{total:,}** filas y el tope está en "
+                f"{limite_total:,}: vas a traer una parte, no el conjunto completo."
+                .replace(",", ".")
+            )
+        else:
+            st.success(f"La consulta devuelve **{total:,}** filas.".replace(",", "."))
+    except Exception as exc:
+        logger.exception("Falló el conteo")
+        st.error(f"No se pudo contar: {exc}")
+
+if e1.button("Extraer datos", type="primary", icon=":material/download:"):
     try:
         with st.status("Trabajando ...", expanded=True) as estado:
             duraciones = {
@@ -353,11 +430,14 @@ if st.button("Extraer datos", type="primary", icon=":material/download:"):
             estado.update(label="Listo", state="complete", expanded=False)
 
         if limpio.empty:
-            st.warning(
-                "La consulta no devolvió filas: esa combinación de filtros no "
-                "existe en el dataset. Usa **Ver valores posibles** para "
-                "comprobar qué contiene realmente cada columna."
-            )
+            st.warning("La consulta no devolvió filas.")
+            if filtros:
+                st.caption("Filtro por filtro, para ver cuál es el que sobra:")
+                cliente = crear_cliente(app_token=app_token or None)
+                try:
+                    st.dataframe(diagnosticar_filtros(cliente, tabla, filtros), hide_index=True)
+                finally:
+                    cliente.close()
             st.session_state.resultado = None
         else:
             st.session_state.resultado = {
@@ -451,6 +531,22 @@ with st.expander("Guardar esta configuración"):
 
     b2.download_button("Descargar aparte", data=yaml_texto.encode("utf-8"),
                        file_name="config.yaml", mime="text/yaml")
+
+    st.divider()
+    st.caption(
+        "O guárdala con un nombre, para volver a ella desde la barra lateral "
+        "sin perder la configuración actual."
+    )
+    n1, n2 = st.columns([3, 1], vertical_alignment="bottom")
+    nombre = n1.text_input("Nombre", placeholder="UNP 2025", label_visibility="collapsed")
+    if n2.button("Guardar consulta", disabled=not nombre.strip()):
+        guardar_consulta(nombre.strip(), {**cfg_actual, "modo": modo})
+        st.success(f"Guardada como «{nombre.strip()}».")
+        st.rerun()
+
+with st.expander("Registro de la última corrida"):
+    st.caption("Las últimas líneas de `logs/secop2.log`.")
+    st.code(leer_log(60), language="log")
 
     if app_token:
         st.info(

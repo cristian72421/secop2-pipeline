@@ -27,6 +27,7 @@ logger = logging.getLogger("pipeline")
 RAIZ = Path(__file__).resolve().parents[1]
 DIR_PROCESADO = RAIZ / "data" / "processed"
 DIR_LOGS = RAIZ / "logs"
+RUTA_CONSULTAS = RAIZ / "config" / "consultas.yaml"
 
 
 def configurar_logging(nivel: int = logging.INFO) -> Path:
@@ -143,6 +144,43 @@ def guardar_config(config: dict, ruta: str | Path) -> Path:
     ruta.write_text("\n".join(partes), encoding="utf-8")
     logger.info("Configuración guardada en %s", ruta)
     return ruta
+
+
+def cargar_consultas(ruta: str | Path = RUTA_CONSULTAS) -> dict:
+    """Consultas guardadas con nombre, para no rearmar los filtros cada vez."""
+    ruta = Path(ruta)
+    if not ruta.exists():
+        return {}
+    with open(ruta, encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def guardar_consulta(nombre: str, consulta: dict, ruta: str | Path = RUTA_CONSULTAS) -> None:
+    """Agrega o reemplaza una consulta guardada."""
+    consultas = cargar_consultas(ruta)
+    consultas[nombre] = consulta
+    Path(ruta).write_text(
+        yaml.safe_dump(consultas, allow_unicode=True, sort_keys=True), encoding="utf-8",
+    )
+    logger.info("Consulta '%s' guardada", nombre)
+
+
+def borrar_consulta(nombre: str, ruta: str | Path = RUTA_CONSULTAS) -> None:
+    """Elimina una consulta guardada."""
+    consultas = cargar_consultas(ruta)
+    if consultas.pop(nombre, None) is not None:
+        Path(ruta).write_text(
+            yaml.safe_dump(consultas, allow_unicode=True, sort_keys=True), encoding="utf-8",
+        )
+        logger.info("Consulta '%s' borrada", nombre)
+
+
+def leer_log(lineas: int = 60, ruta: str | Path | None = None) -> str:
+    """Últimas líneas del registro, para revisarlo sin salir de la interfaz."""
+    ruta = Path(ruta or (DIR_LOGS / "secop2.log"))
+    if not ruta.exists():
+        return "Todavía no hay registro de ninguna corrida."
+    return "\n".join(ruta.read_text(encoding="utf-8", errors="replace").splitlines()[-lineas:])
 
 
 def ejecutar(config: dict) -> Path:
