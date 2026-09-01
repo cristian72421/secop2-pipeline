@@ -16,10 +16,10 @@ limite_total: 5000
 # Filtros de extracción. Bloque vacío ({}) = sin filtrar.
 filtros:
   ciudad: "Bogotá"
-  sector: "Transporte"
-  # fecha_de_firma:
-  #   desde: "2024-01-01"
-  #   hasta: "2024-12-31"
+  nombre_entidad: "UNP"
+  fecha_de_firma:
+    desde: "2025-01-01"
+    hasta: "2025-12-31"
 
 # Solo para flujo_vigia: cuántos meses antes se buscan los procesos. El proceso
 # siempre precede al contrato, así que su ventana tiene que empezar antes.
