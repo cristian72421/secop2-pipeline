@@ -235,3 +235,91 @@ def calidad_datos(df: pd.DataFrame, columnas: dict | None = None) -> pd.DataFram
 
     tabla = pd.DataFrame(revisiones, columns=["revisión", "casos"])
     return tabla[tabla["casos"] > 0].reset_index(drop=True)
+
+
+def agrupar_modalidades(df: pd.DataFrame, n: int = 4, columnas: dict | None = None) -> pd.Series:
+    """
+    Deja las n modalidades más frecuentes y agrupa el resto en "Otras".
+
+    Una paleta tiene un número fijo de colores; la categoría n+1 no recibe un
+    color nuevo, se dobla en "Otras".
+    """
+    col_mod = _col(df, "modalidad", columnas)
+    if col_mod is None:
+        return pd.Series(dtype=object)
+
+    serie = df[col_mod].fillna("Sin dato")
+    principales = serie.value_counts().head(n).index
+    return serie.where(serie.isin(principales), "Otras")
+
+
+def curva_concentracion(df: pd.DataFrame, columnas: dict | None = None) -> pd.DataFrame:
+    """
+    Curva de Lorenz de la contratación: qué porcentaje del valor acumulan los
+    proveedores, ordenados de mayor a menor.
+
+    La diagonal sería el reparto perfectamente equitativo; cuanto más se separe
+    la curva de ella, más concentrada está la contratación.
+    """
+    col_prov = _col(df, "proveedor", columnas)
+    valores = _num(df, _col(df, "valor", columnas))
+    if col_prov is None or valores.empty:
+        return pd.DataFrame()
+
+    por_proveedor = (
+        pd.DataFrame({"proveedor": df[col_prov].fillna("Sin dato"), "valor": valores})
+        .groupby("proveedor")["valor"].sum()
+        .sort_values(ascending=False)
+    )
+    total = por_proveedor.sum()
+    if not total:
+        return pd.DataFrame()
+
+    acumulado = por_proveedor.cumsum() / total * 100
+    proveedores = np.arange(1, len(por_proveedor) + 1) / len(por_proveedor) * 100
+    return pd.DataFrame({
+        "pct_proveedores": np.concatenate([[0], proveedores]),
+        "pct_valor": np.concatenate([[0], acumulado.to_numpy()]),
+    })
+
+
+def contratos_por_mes_modalidad(
+    df: pd.DataFrame, n: int = 4, columnas: dict | None = None,
+) -> pd.DataFrame:
+    """Contratos por mes, desagregados por modalidad."""
+    col_firma = _col(df, "firma", columnas)
+    if col_firma is None:
+        return pd.DataFrame()
+
+    fechas = pd.to_datetime(df[col_firma], errors="coerce")
+    modalidades = agrupar_modalidades(df, n=n, columnas=columnas)
+    if modalidades.empty:
+        return pd.DataFrame()
+
+    tabla = pd.DataFrame({"mes": fechas.dt.to_period("M").astype(str),
+                          "modalidad": modalidades}).dropna(subset=["mes"])
+    return tabla.groupby(["mes", "modalidad"]).size().reset_index(name="contratos")
+
+
+def valores_por_modalidad(
+    df: pd.DataFrame, n: int = 4, columnas: dict | None = None,
+) -> pd.DataFrame:
+    """Valor de cada contrato con su modalidad, para ver la dispersión."""
+    valores = _num(df, _col(df, "valor", columnas))
+    modalidades = agrupar_modalidades(df, n=n, columnas=columnas)
+    if valores.empty or modalidades.empty:
+        return pd.DataFrame()
+
+    tabla = pd.DataFrame({"valor": valores, "modalidad": modalidades})
+    return tabla[tabla["valor"] > 0].dropna()
+
+
+def dias_firma_a_inicio(df: pd.DataFrame, columnas: dict | None = None) -> pd.DataFrame:
+    """Días entre firma e inicio, marcados según sean negativos o no."""
+    dias = _num(df, _col(df, "firma_a_inicio", columnas)).dropna()
+    if dias.empty:
+        return pd.DataFrame()
+    return pd.DataFrame({
+        "dias": dias,
+        "estado": np.where(dias < 0, "Firmado tras iniciar", "En regla"),
+    })

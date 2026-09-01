@@ -12,6 +12,7 @@ import logging
 import os
 from pathlib import Path
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 import yaml
@@ -53,6 +54,10 @@ COLOR = "#2E7D32"
 # modo claro y oscuro.
 COLOR_NORMAL = "#3E7CC0"
 COLOR_ALERTA = "#C4661F"
+
+# Orden fijo de la paleta categórica: los colores se asignan en este orden y
+# nunca se recicla. Una quinta categoría se agrupa en "Otras".
+PALETA = ["#12805F", "#C4661F", "#3E7CC0", "#AE5183", "#7C7C7C"]
 
 SIN_FILTRO = "— sin filtro —"
 OTRO_VALOR = "— otro valor —"
@@ -716,16 +721,71 @@ else:
                              color=COLOR_NORMAL, horizontal=True, height=280,
                              x_label=f"Valor ({uni} de pesos)", y_label="")
 
-        firma = ind.distribucion_firma_a_inicio(df)
-        if not firma.empty:
+        detalle_firma = ind.dias_firma_a_inicio(df)
+        if not detalle_firma.empty:
             st.markdown("#### Días entre la firma y el inicio")
             st.caption(
-                "Una duración negativa significa que el contrato se firmó "
-                "después de haber empezado. Se conserva porque es la señal, "
-                "no un error de datos."
+                "Histograma. Una duración negativa significa que el contrato se "
+                "firmó después de haber empezado; se conserva porque es la "
+                "señal, no un error de datos."
             )
-            st.bar_chart(firma, height=260, x_label="", y_label="Contratos",
-                         color=[COLOR_ALERTA, COLOR_NORMAL])
+            recorte = detalle_firma[detalle_firma["dias"].between(-60, 120)]
+            histograma = (
+                alt.Chart(recorte)
+                .mark_bar()
+                .encode(
+                    x=alt.X("dias:Q", bin=alt.Bin(maxbins=60), title="Días entre firma e inicio"),
+                    y=alt.Y("count():Q", title="Contratos"),
+                    color=alt.Color("estado:N", title="",
+                                    scale=alt.Scale(domain=["En regla", "Firmado tras iniciar"],
+                                                    range=[COLOR_NORMAL, COLOR_ALERTA])),
+                    tooltip=[alt.Tooltip("count():Q", title="Contratos")],
+                )
+                .properties(height=260)
+            )
+            st.altair_chart(histograma, use_container_width=True)
+            if len(recorte) < len(detalle_firma):
+                st.caption(
+                    f"Se muestran los que caen entre −60 y 120 días "
+                    f"({len(detalle_firma) - len(recorte)} quedan fuera del recorte)."
+                )
+
+        dispersion = ind.valores_por_modalidad(df)
+        if not dispersion.empty:
+            st.markdown("#### Dispersión de valores por modalidad")
+            st.caption(
+                "Cada punto es un contrato, en escala logarítmica. El diagrama "
+                "de caja marca la mediana y el rango donde cae la mitad central."
+            )
+            caja = (
+                alt.Chart(dispersion)
+                .mark_boxplot(size=18, outliers={"size": 12, "opacity": 0.5})
+                .encode(
+                    x=alt.X("valor:Q", scale=alt.Scale(type="log"), title="Valor del contrato (pesos)"),
+                    y=alt.Y("modalidad:N", title="", sort="-x"),
+                    color=alt.Color("modalidad:N", legend=None,
+                                    scale=alt.Scale(range=PALETA)),
+                )
+                .properties(height=240)
+            )
+            st.altair_chart(caja, use_container_width=True)
+
+        mensual = ind.contratos_por_mes_modalidad(df)
+        if not mensual.empty:
+            st.markdown("#### Contratos por mes y modalidad")
+            barras = (
+                alt.Chart(mensual)
+                .mark_bar()
+                .encode(
+                    x=alt.X("mes:N", title=""),
+                    y=alt.Y("contratos:Q", title="Contratos"),
+                    color=alt.Color("modalidad:N", title="Modalidad",
+                                    scale=alt.Scale(range=PALETA)),
+                    tooltip=["mes", "modalidad", "contratos"],
+                )
+                .properties(height=260)
+            )
+            st.altair_chart(barras, use_container_width=True)
 
         ofertas = ind.ofertas_por_modalidad(df)
         if not ofertas.empty:
@@ -746,6 +806,30 @@ else:
                 c2.metric("Top 10: contratos", f"{conc['pct_contratos']:.1f}%")
             if conc["pct_valor"] is not None:
                 c3.metric("Top 10: valor", f"{conc['pct_valor']:.1f}%")
+            curva = ind.curva_concentracion(df)
+            if not curva.empty:
+                st.caption(
+                    "Curva de concentración: qué porcentaje del valor acumulan "
+                    "los proveedores ordenados de mayor a menor. La diagonal "
+                    "sería el reparto perfectamente equitativo."
+                )
+                linea = (
+                    alt.Chart(curva).mark_line(strokeWidth=2, color=COLOR_ALERTA)
+                    .encode(
+                        x=alt.X("pct_proveedores:Q", title="% de proveedores"),
+                        y=alt.Y("pct_valor:Q", title="% del valor acumulado"),
+                        tooltip=[alt.Tooltip("pct_proveedores:Q", format=".1f", title="% proveedores"),
+                                 alt.Tooltip("pct_valor:Q", format=".1f", title="% valor")],
+                    )
+                )
+                diagonal = (
+                    alt.Chart(pd.DataFrame({"x": [0, 100], "y": [0, 100]}))
+                    .mark_line(strokeDash=[4, 4], color="#7C7C7C", strokeWidth=1)
+                    .encode(x="x:Q", y="y:Q")
+                )
+                st.altair_chart((diagonal + linea).properties(height=260),
+                                use_container_width=True)
+
             tabla_prov = conc["tabla"].copy()
             div, uni = escala_monetaria(tabla_prov["valor"].max())
             tabla_prov["valor"] = (tabla_prov["valor"] / div).round(2)
