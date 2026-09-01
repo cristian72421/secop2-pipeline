@@ -40,6 +40,11 @@ from src.procesamiento import procesar
 
 RAIZ = Path(__file__).resolve().parent
 RUTA_CONFIG = RAIZ / "config" / "config.yaml"
+DIR_PROCESADO = RAIZ / "data" / "processed"
+
+# Un solo color para todas las gráficas: cada una muestra una sola serie, así
+# que varios colores no codificarían nada.
+COLOR = "#2E7D32"
 
 SIN_FILTRO = "— sin filtro —"
 OTRO_VALOR = "— otro valor —"
@@ -448,6 +453,33 @@ if e1.button("Extraer datos", type="primary", icon=":material/download:"):
         st.error(f"Falló la extracción: {exc}")
         st.session_state.resultado = None
 
+# ---------------------------- Extracciones previas --------------------------
+anteriores = sorted(DIR_PROCESADO.glob("*.csv"), key=lambda f: f.stat().st_mtime, reverse=True)
+if anteriores:
+    with st.expander(f"Extracciones anteriores ({len(anteriores)})"):
+        st.caption(f"Archivos guardados en `data/processed`.")
+        tabla_hist = pd.DataFrame([
+            {
+                "archivo": f.name,
+                "guardado": pd.Timestamp(f.stat().st_mtime, unit="s").strftime("%d/%m/%Y %H:%M"),
+                "tamaño": f"{f.stat().st_size / 1e6:.1f} MB",
+            }
+            for f in anteriores[:20]
+        ])
+        st.dataframe(tabla_hist, hide_index=True)
+
+        h1, h2 = st.columns([3, 1], vertical_alignment="bottom")
+        cual = h1.selectbox("Abrir uno", [f.name for f in anteriores[:20]],
+                            label_visibility="collapsed")
+        if h2.button("Abrir", icon=":material/folder_open:"):
+            ruta = DIR_PROCESADO / cual
+            leido = pd.read_csv(ruta, low_memory=False)
+            st.session_state.resultado = {
+                "df": leido, "filas_crudas": len(leido),
+                "tabla": tabla, "vigia": False, "origen": cual,
+            }
+            st.rerun()
+
 # --------------------------------- Resultado --------------------------------
 res = st.session_state.resultado
 if res is None:
@@ -478,22 +510,83 @@ else:
             + ", ".join(f"`{c}`" for c in faltantes)
         )
 
-    t1, t2 = st.tabs(["Vista previa", "Resumen"])
+    t1, t2 = st.tabs(["Datos", "Resumen"])
+
     with t1:
-        st.dataframe(df.head(200), hide_index=True)
-        st.caption(f"Primeras 200 filas de {len(df):,}".replace(",", ".") + ".")
-        st.download_button(
-            "Descargar CSV", icon=":material/download:",
-            data=df.to_csv(index=False).encode("utf-8-sig"),
-            file_name=f"secop2_{'vigia' if res['vigia'] else res['tabla']}.csv",
-            mime="text/csv",
+        seleccion = st.multiselect(
+            "Columnas", list(df.columns), default=list(df.columns),
+            help="Recorta la vista y la descarga. Con 144 columnas conviene "
+                 "quedarse con las que vas a usar.",
         )
+        vista = df[seleccion] if seleccion else df
+
+        st.dataframe(vista.head(200), hide_index=True)
+        st.caption(
+            f"Primeras 200 filas de {len(vista):,}".replace(",", ".")
+            + f" · {vista.shape[1]} de {df.shape[1]} columnas."
+        )
+
+        d1, d2 = st.columns(2)
+        nombre_archivo = f"secop2_{'vigia' if res['vigia'] else res['tabla']}"
+        d1.download_button(
+            "Descargar CSV", icon=":material/download:",
+            data=vista.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"{nombre_archivo}.csv", mime="text/csv",
+        )
+        if d2.button("Guardar en data/processed", icon=":material/save:"):
+            try:
+                DIR_PROCESADO.mkdir(parents=True, exist_ok=True)
+                marca = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+                destino = DIR_PROCESADO / f"{nombre_archivo}_{marca}.csv"
+                vista.to_csv(destino, index=False, encoding="utf-8-sig")
+                logger.info("Guardado desde la interfaz en %s", destino)
+                st.success(f"Guardado como `{destino.name}`.")
+            except Exception as exc:
+                logger.exception("No se pudo guardar el CSV")
+                st.error(f"No se pudo guardar: {exc}")
+
     with t2:
+        col_fechas = [c for c in texto_a_lista(txt_fechas) if c in df.columns]
+        col_montos = [c for c in texto_a_lista(txt_moneda) if c in df.columns]
+
+        if col_fechas:
+            st.markdown("**Contratos por mes**")
+            elegida_f = st.selectbox("Fecha de referencia", col_fechas,
+                                     label_visibility="collapsed")
+            serie = pd.to_datetime(df[elegida_f], errors="coerce").dropna()
+            if not serie.empty:
+                por_mes = serie.dt.to_period("M").value_counts().sort_index()
+                por_mes.index = por_mes.index.astype(str)
+                st.bar_chart(por_mes, color=COLOR, height=240,
+                             x_label="Mes", y_label="Contratos")
+
+            if col_montos:
+                st.markdown("**Valor total por mes**")
+                montos = pd.to_numeric(df[col_montos[0]], errors="coerce")
+                fechas = pd.to_datetime(df[elegida_f], errors="coerce")
+                suma = montos.groupby(fechas.dt.to_period("M")).sum().sort_index()
+                suma.index = suma.index.astype(str)
+                st.bar_chart(suma, color=COLOR, height=240,
+                             x_label="Mes", y_label=col_montos[0])
+
+        # Categóricas: solo las que tienen un número de valores legible.
+        candidatas = [
+            c for c in df.columns
+            if df[c].dtype == object and 1 < df[c].nunique(dropna=True) <= 60
+        ]
+        if candidatas:
+            st.markdown("**Distribución por categoría**")
+            elegida_c = st.selectbox("Columna", candidatas, label_visibility="collapsed",
+                                     index=candidatas.index("modalidad_de_contratacion")
+                                     if "modalidad_de_contratacion" in candidatas else 0)
+            conteo = df[elegida_c].value_counts().head(10).sort_values()
+            st.bar_chart(conteo, color=COLOR, horizontal=True, height=300,
+                         x_label="Contratos", y_label="")
+
         numericas = df.select_dtypes("number")
         if not numericas.empty:
-            st.dataframe(numericas.describe().T, hide_index=False)
-        else:
-            st.caption("No hay columnas numéricas que resumir.")
+            with st.expander("Estadísticas de las columnas numéricas"):
+                st.dataframe(numericas.describe().T)
 
 # --------------------------- Guardar la selección ---------------------------
 st.divider()

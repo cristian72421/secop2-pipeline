@@ -322,6 +322,15 @@ Lo que aporta sobre el YAML:
   por separado y muestra cuál es el que da cero. Es el procedimiento manual de
   ir quitando filtros, hecho automáticamente.
 - **Muestra el registro** de la última corrida, sin salir a buscar la terminal.
+- **Recorta columnas** antes de ver y descargar: el resultado combinado trae 144
+  y rara vez se usan todas.
+- **Guarda en `data/processed`**, igual que la ruta de consola, además de la
+  descarga por el navegador.
+- **Lista las extracciones anteriores** y permite reabrir una sin volver a
+  descargarla.
+- **Grafica** contratos por mes, valor por mes y distribución por categoría.
+  Una sola serie por gráfica y un solo color: no hay nada que distinguir por
+  tono, así que varios colores no codificarían información.
 
 ```powershell
 streamlit run app.py
