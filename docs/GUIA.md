@@ -403,9 +403,10 @@ Cosas que no están documentadas en el portal y costaron tiempo:
 **Funciona y está probado contra datos reales:**
 
 - Extracción por API con filtros y paginación.
-- Limpieza de fechas, montos, duplicados y duraciones.
+- Limpieza de fechas, montos y duraciones.
 - Parametrización por YAML y por interfaz.
 - Ruta de CSV local.
+- Flujo multi-tabla: 3.266 de 3.273 contratos (99,8%) encuentran su proceso.
 
 **Decisión metodológica: no se eliminan duplicados.** El pipeline tuvo en algún
 momento un paso que descartaba filas repetidas por identificador de contrato. Se
@@ -417,13 +418,9 @@ que sí resuelve conflictos, se conserva porque responde a otro problema.
 
 **Sin resolver:**
 
-1. **`flujo_vigia.py` falta terminar de validar.** La llave (`id_del_portafolio`)
-   y la fecha (`fecha_de_publicacion_del`) están confirmadas contra los datos,
-   pero falta una corrida completa que muestre qué porcentaje de contratos
-   encuentra su proceso.
-2. **No hay pruebas automatizadas.** El error de las fechas se habría detectado
+1. **No hay pruebas automatizadas.** El error de las fechas se habría detectado
    con unas pocas líneas de prueba.
-3. **El constructor de filtros es limitado**: sin `LIKE`, sin `IN`, sin
+2. **El constructor de filtros es limitado**: sin `LIKE`, sin `IN`, sin
    comparaciones numéricas.
 
 ---
@@ -449,6 +446,22 @@ que sí resuelve conflictos, se conserva porque responde a otro problema.
   fuerte del conjunto.
 - **Concentración de proveedores: nula.** 2.498 proveedores para 3.273
   contratos; el mayor con 3.
+### Variables de proceso (tras unir con la tabla de procesos)
+
+Disponibles para 3.266 de los 3.273 contratos: fecha de publicación, precio
+base, respuestas al procedimiento, proveedores invitados y estado del proceso.
+
+- **Respuestas al procedimiento: 0 en 3.215 casos** (98,6% con una o ninguna).
+- **Periodo entre publicación y firma: mediana de 1 día**, percentil 90 en 2
+  días. En 1.183 contratos la publicación es igual o posterior a la firma.
+
+Ambas cifras hay que leerlas junto al 98% de contratación directa: en esa
+modalidad no hay convocatoria abierta, así que cero respuestas y una
+publicación casi simultánea a la firma son lo esperado por el procedimiento, no
+evidencia de irregularidad. Sirven como descripción del tipo de contratación de
+la entidad; convertirlas en señal de riesgo sin distinguir modalidad produciría
+falsos positivos masivos.
+
 - **Valores:** total $1,26 billones, mediana $36 millones. Hay un contrato de
   $158.001.612.800 que concentra el 12,6% del total y está cinco órdenes de
   magnitud por encima de la mediana. Hay que verificarlo antes de calcular
