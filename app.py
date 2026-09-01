@@ -8,6 +8,7 @@ Monitoría de investigación - Beca Avanza, Universidad de los Andes.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -24,13 +25,18 @@ from src.extraccion import (
     listar_columnas,
     valores_distintos,
 )
-from src.pipeline import guardar_config
+from src.pipeline import configurar_logging, guardar_config
 from src.procesamiento import procesar
 
 RAIZ = Path(__file__).resolve().parent
 RUTA_CONFIG = RAIZ / "config" / "config.yaml"
 
 st.set_page_config(page_title="Pipeline SECOP 2", page_icon="📄", layout="wide")
+
+# Deja constancia en logs/secop2.log de lo que hace cada corrida, para poder
+# revisar después por qué una extracción salió como salió.
+configurar_logging()
+logger = logging.getLogger("app")
 
 
 def cargar_defaults() -> dict:
@@ -241,16 +247,13 @@ with st.expander("Procesamiento (columnas a limpiar)"):
         txt_fechas = st.text_area(
             "Columnas de fecha", lista_a_texto(cfg.get("columnas_fecha")), height=110
         )
-        formato_fecha = st.text_input(
-            "Formato de fecha", value=cfg.get("formato_fecha", "%m/%d/%Y"),
-            help="SECOP II entrega MM/DD/YYYY.",
-        )
     with c2:
         txt_moneda = st.text_area(
             "Columnas de moneda", lista_a_texto(cfg.get("columnas_moneda")), height=110
         )
-        txt_dedup = st.text_area(
-            "Columnas para eliminar duplicados", lista_a_texto(cfg.get("subset_duplicados")), height=68
+        formato_fecha = st.text_input(
+            "Formato de fecha", value=cfg.get("formato_fecha", "%m/%d/%Y"),
+            help="La API entrega ISO; el CSV del portal, MM/DD/YYYY. Si no coincide se infiere.",
         )
 
 # --------------------------- Consulta y ejecución ---------------------------
@@ -302,7 +305,6 @@ if st.button("Extraer", type="primary"):
                 df,
                 columnas_fecha=texto_a_lista(txt_fechas),
                 columnas_moneda=texto_a_lista(txt_moneda),
-                subset_duplicados=texto_a_lista(txt_dedup) or None,
                 pares_duraciones=duraciones or None,
                 formato_fecha=formato_fecha or None,
             )
@@ -313,6 +315,7 @@ if st.button("Extraer", type="primary"):
             }
     except Exception as exc:
         barra.empty()
+        logger.exception("Falló la extracción")
         st.error(f"Falló la extracción: {exc}")
         st.session_state.resultado = None
 
@@ -327,7 +330,7 @@ if res:
 
     # Avisar de columnas configuradas que la tabla no trae: procesar() las
     # ignora en silencio y es la causa más común de un resultado sin limpiar.
-    esperadas = set(texto_a_lista(txt_fechas) + texto_a_lista(txt_moneda) + texto_a_lista(txt_dedup))
+    esperadas = set(texto_a_lista(txt_fechas) + texto_a_lista(txt_moneda))
     faltantes = sorted(c for c in esperadas if c not in df.columns)
     if faltantes:
         st.warning(
@@ -360,7 +363,6 @@ with st.expander("Guardar esta configuración"):
         "columnas_fecha": texto_a_lista(txt_fechas),
         "formato_fecha": formato_fecha,
         "columnas_moneda": texto_a_lista(txt_moneda),
-        "subset_duplicados": texto_a_lista(txt_dedup),
         "duraciones": cfg.get("duraciones") or [],
     }
     yaml_texto = yaml.safe_dump(cfg_actual, allow_unicode=True, sort_keys=False)
@@ -375,6 +377,7 @@ with st.expander("Guardar esta configuración"):
                 "`git diff` muestra el cambio y `git checkout` lo revierte."
             )
         except Exception as exc:
+            logger.exception("No se pudo guardar la configuración")
             st.error(f"No se pudo guardar: {exc}")
 
     b2.download_button("Descargar aparte", data=yaml_texto.encode("utf-8"),

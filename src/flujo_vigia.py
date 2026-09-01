@@ -19,7 +19,7 @@ import logging
 from pathlib import Path
 
 from src.extraccion import crear_cliente, extraer_dataset
-from src.pipeline import cargar_config, token_efectivo
+from src.pipeline import cargar_config, configurar_logging, token_efectivo
 from src.procesamiento import (
     convertir_columnas_fecha,
     calcular_duraciones,
@@ -28,11 +28,6 @@ from src.procesamiento import (
     unir_tablas,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    datefmt="%H:%M:%S",
-)
 logger = logging.getLogger("flujo_vigia")
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -95,6 +90,7 @@ def main() -> None:
     parser.add_argument("--limite", type=int, default=5000)
     args = parser.parse_args()
 
+    configurar_logging()
     config = cargar_config(args.config)
     base = construir_base_contratos(config, limite=args.limite)
 

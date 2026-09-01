@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import logging.handlers
 import os
 from datetime import datetime
 from pathlib import Path
@@ -19,15 +20,55 @@ import yaml
 from src.extraccion import crear_cliente, extraer_dataset
 from src.procesamiento import procesar
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    datefmt="%H:%M:%S",
-)
 logger = logging.getLogger("pipeline")
 
+# Se calcula la raíz a partir de la ubicación de este archivo, para que las
+# rutas funcionen sin importar desde qué carpeta se lance el comando.
 RAIZ = Path(__file__).resolve().parents[1]
 DIR_PROCESADO = RAIZ / "data" / "processed"
+DIR_LOGS = RAIZ / "logs"
+
+
+def configurar_logging(nivel: int = logging.INFO) -> Path:
+    """
+    Manda los mensajes a la consola y a logs/secop2.log.
+
+    El archivo permite revisar después qué pasó en una corrida: qué consulta se
+    lanzó, cuántas filas llegaron, qué columnas no se encontraron. Sin él, los
+    avisos se pierden al cerrar la terminal, que es justo cuando hacen falta.
+
+    El archivo rota al llegar a 1 MB y se conservan cinco anteriores, para que
+    no crezca sin límite.
+    """
+    raiz_log = logging.getLogger()
+    raiz_log.setLevel(nivel)
+
+    # Streamlit vuelve a ejecutar el script en cada interacción; sin esta guarda
+    # se acumularían handlers y cada mensaje saldría repetido.
+    if any(getattr(h, "_secop2", False) for h in raiz_log.handlers):
+        return DIR_LOGS / "secop2.log"
+
+    DIR_LOGS.mkdir(parents=True, exist_ok=True)
+    ruta = DIR_LOGS / "secop2.log"
+
+    archivo = logging.handlers.RotatingFileHandler(
+        ruta, maxBytes=1_000_000, backupCount=5, encoding="utf-8",
+    )
+    archivo.setFormatter(logging.Formatter(
+        "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
+    ))
+    archivo._secop2 = True
+
+    consola = logging.StreamHandler()
+    consola.setFormatter(logging.Formatter(
+        "%(asctime)s | %(levelname)s | %(message)s", datefmt="%H:%M:%S",
+    ))
+    consola._secop2 = True
+
+    raiz_log.addHandler(archivo)
+    raiz_log.addHandler(consola)
+    logger.info("Registro de esta corrida en %s", ruta)
+    return ruta
 
 
 # Comentario que acompaña a cada clave al reescribir el YAML, para que el
@@ -47,7 +88,6 @@ COMENTARIOS_CONFIG = {
         "portal, MM/DD/YYYY;\n# si no coincide, el pipeline lo infiere."
     ),
     "columnas_moneda": 'Montos en formato colombiano ("$13.339.049" -> 13339049.0)',
-    "subset_duplicados": "Columna identificadora para eliminar duplicados",
     "duraciones": "Duraciones en días entre fechas clave del contrato",
 }
 
@@ -106,6 +146,8 @@ def ejecutar(config: dict) -> Path:
     """Ejecuta el pipeline completo con los parámetros dados y guarda el CSV."""
     cliente = crear_cliente(app_token=token_efectivo(config))
 
+    # El try/finally garantiza que la conexión se cierre aunque la descarga
+    # falle a mitad de camino.
     try:
         df = extraer_dataset(
             cliente,
@@ -133,8 +175,9 @@ def ejecutar(config: dict) -> Path:
         df,
         columnas_fecha=config.get("columnas_fecha"),
         columnas_numericas=config.get("columnas_numericas"),
-        subset_duplicados=config.get("subset_duplicados"),
+        columnas_moneda=config.get("columnas_moneda"),
         pares_duraciones=pares_duraciones,
+        formato_fecha=config.get("formato_fecha"),
     )
 
     # marca de tiempo en el nombre para no pisar corridas anteriores
@@ -158,6 +201,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    configurar_logging()
     config = cargar_config(args.config)
     ejecutar(config)
 

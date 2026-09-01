@@ -18,13 +18,9 @@ from pathlib import Path
 
 import pandas as pd
 
+from src.pipeline import configurar_logging
 from src.procesamiento import procesar
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    datefmt="%H:%M:%S",
-)
 logger = logging.getLogger("procesar_csv")
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -43,8 +39,6 @@ COLUMNAS_MONEDA = [
     "valor_pagado",
     "valor_pendiente_de_pago",
 ]
-
-SUBSET_DUPLICADOS = ["id_contrato"]
 
 DURACIONES = {
     "dias_firma_a_inicio": ("fecha_de_firma", "fecha_de_inicio_del_contrato"),
@@ -66,6 +60,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    configurar_logging()
     logger.info("Leyendo %s ...", args.entrada)
     df = pd.read_csv(args.entrada, low_memory=False)
     logger.info("Entrada: %d filas, %d columnas", len(df), df.shape[1])
@@ -75,7 +70,6 @@ def main() -> None:
         columnas_fecha=COLUMNAS_FECHA,
         formato_fecha=FORMATO_FECHA,
         columnas_moneda=COLUMNAS_MONEDA,
-        subset_duplicados=SUBSET_DUPLICADOS,
         pares_duraciones=DURACIONES,
     )
 

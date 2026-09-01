@@ -60,7 +60,9 @@ def listar_columnas(tabla: str) -> pd.DataFrame:
     filas = []
     for col in respuesta.json().get("columns", []):
         campo = col.get("fieldName") or ""
-        if campo.startswith(":"):  # columnas internas de Socrata
+        # Socrata expone columnas propias suyas (:id, :created_at) que no son
+        # datos del contrato y solo ensucian la lista.
+        if campo.startswith(":"):
             continue
         cache = (col.get("cachedContents") or {}).get("top") or []
         filas.append({
@@ -151,6 +153,8 @@ def extraer_dataset(
     where = _construir_where(filtros)
     logger.info("Extrayendo tabla '%s' (id=%s) where=%s", tabla, dataset_id, where)
 
+    # Se acumulan las páginas y se concatenan al final: hacerlo en cada vuelta
+    # copiaría la tabla entera una y otra vez.
     paginas: list[pd.DataFrame] = []
     offset = 0
     total = 0
@@ -179,7 +183,8 @@ def extraer_dataset(
         offset += n
         logger.info("  página descargada: %d filas (acumulado: %d)", n, total)
 
-        if n < limite:  # última página
+        # Una página más corta que el límite pedido significa que ya no hay más.
+        if n < limite:
             break
 
         time.sleep(0.2)  # evitar throttling de la API

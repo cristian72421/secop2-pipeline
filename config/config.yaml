@@ -35,10 +35,6 @@ columnas_moneda:
   - valor_pagado
   - valor_pendiente_de_pago
 
-# Columna identificadora para eliminar duplicados
-subset_duplicados:
-  - id_contrato
-
 # Duraciones en días entre fechas clave del contrato
 duraciones:
   - nombre: dias_firma_a_inicio
