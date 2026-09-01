@@ -43,6 +43,13 @@ FECHAS_CONTRATO = [
 ]
 FECHA_PUBLICACION = "fecha_de_publicacion"  # en la tabla de procesos
 
+# Columnas que existen en ambas tablas pero con distinto nombre. Sin esta
+# traducción el filtro de entidad se pierde y la consulta de procesos sale sin
+# acotar, trayendo registros de todo el país que no cruzan con nada.
+EQUIVALENCIAS_PROCESOS = {
+    "nombre_entidad": "entidad",
+}
+
 DURACIONES = {
     "dias_firma_a_inicio": ("fecha_de_firma", "fecha_de_inicio_del_contrato"),
     "dias_inicio_a_fin": ("fecha_de_inicio_del_contrato", "fecha_de_fin_del_contrato"),
@@ -91,8 +98,13 @@ def filtros_para_procesos(
                 "Procesos: se busca desde %s (%d meses antes que los contratos)",
                 rango.get("desde"), margen_meses,
             )
-        elif columna in columnas_procesos:
-            adaptados[columna] = valor
+            continue
+
+        equivalente = EQUIVALENCIAS_PROCESOS.get(columna, columna)
+        if equivalente in columnas_procesos:
+            adaptados[equivalente] = valor
+            if equivalente != columna:
+                logger.info("Filtro '%s' se aplica a procesos como '%s'.", columna, equivalente)
         else:
             logger.info(
                 "Filtro '%s' no aplica a procesos: la columna no existe ahí.", columna

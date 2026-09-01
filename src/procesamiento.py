@@ -165,7 +165,14 @@ def reconciliar_por_llave(
     # Dos pasos: primero se quitan las filas idénticas entre sí, y solo después
     # se agrupa, para que la agregación resuelva únicamente los casos en que la
     # misma llave trae datos distintos.
-    df = df.drop_duplicates().reset_index(drop=True)
+    #
+    # Socrata entrega algunas columnas como diccionarios (las de tipo URL o
+    # ubicación) y esas no se pueden comparar, así que quedan fuera del cotejo.
+    comparables = [
+        col for col in df.columns
+        if not df[col].map(lambda v: isinstance(v, (dict, list))).any()
+    ]
+    df = df.drop_duplicates(subset=comparables).reset_index(drop=True)
 
     agregaciones = {
         col: ("min" if col in fecha_mas_antigua else "first")

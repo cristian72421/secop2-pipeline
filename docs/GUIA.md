@@ -271,9 +271,12 @@ filtros escritos para contratos y hace dos ajustes:
   defecto). Un proceso publicado en noviembre puede producir un contrato firmado
   en enero; filtrar ambas tablas al mismo periodo dejaría sin proceso a los
   contratos del comienzo de la ventana, y ese sesgo no sería aleatorio.
-- Los demás filtros se conservan solo si esa columna existe en procesos. Las dos
-  tablas no tienen las mismas columnas, y pedir una que no existe hace fallar la
-  consulta.
+- Los demás filtros se traducen antes de aplicarse, porque algunas columnas
+  equivalentes se llaman distinto en cada tabla: la entidad es `nombre_entidad`
+  en contratos y `entidad` en procesos. Si no existe equivalente, el filtro se
+  descarta — pedir una columna inexistente hace fallar la consulta. Perder el
+  filtro de entidad es grave: la consulta de procesos sale sin acotar y trae
+  registros de todo el país que no cruzan con nada.
 
 **Antes de unir se cuenta cuántos contratos encuentran su proceso**, y se avisa
 si son cero. Sin esa cuenta, una llave equivocada pasa desapercibida: la unión
@@ -373,6 +376,9 @@ Cosas que no están documentadas en el portal y costaron tiempo:
   miles por el CSV.
 - **Los filtros son sensibles a tildes y mayúsculas.** `Bogotá` y `BOGOTA` no
   son lo mismo.
+- **Algunas columnas llegan como diccionarios**, no como texto: las de tipo URL
+  y ubicación. No se pueden comparar entre sí, así que quedan fuera del cotejo
+  de filas idénticas.
 - **La API omite las columnas totalmente vacías**, así que el número de columnas
   varía según el filtro. Dos extracciones de la misma tabla pueden traer 86 y 87
   columnas.
