@@ -1,0 +1,8 @@
+# Tema de la interfaz. No se fija "base" a propósito: así respeta si el
+# navegador está en modo claro u oscuro.
+[theme]
+primaryColor = "#2E7D32"
+font = "sans serif"
+
+[server]
+runOnSave = true

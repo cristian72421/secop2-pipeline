@@ -27,6 +27,7 @@ la base de datos limpia sobre la que se pararían.
 ```
 secop2-pipeline/
 ├── app.py                    Interfaz web (Streamlit)
+├── .streamlit/config.toml    Tema de la interfaz
 ├── config/config.yaml        Parámetros: qué extraer y cómo limpiarlo
 ├── src/
 │   ├── extraccion.py         Todo lo que habla con la API  (E)
@@ -294,6 +295,12 @@ el constructor de filtros todavía no soporta.
 ## 8. `app.py` — la interfaz
 
 Formulario web sobre los mismos módulos. No implementa lógica propia.
+
+Tiene dos modos, elegibles en la barra lateral:
+
+- **Una tabla** — extrae y limpia una sola tabla.
+- **Contratos + procesos** — corre el flujo multi-tabla, el mismo que
+  `flujo_vigia.py` por consola.
 
 Lo que aporta sobre el YAML:
 
