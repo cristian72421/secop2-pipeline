@@ -32,16 +32,22 @@ logger = logging.getLogger("flujo_vigia")
 
 RAIZ = Path(__file__).resolve().parents[1]
 
-# La llave que relaciona las dos tablas se llama distinto en cada una.
+# La llave que relaciona las dos tablas se llama distinto en cada una, y en
+# procesos no es la columna que uno esperaría: id_del_proceso guarda otro
+# identificador (CO1.REQ.*) que no aparece en contratos. El que coincide con
+# proceso_de_compra (CO1.BDOS.*) es id_del_portafolio.
 LLAVE_CONTRATOS = "proceso_de_compra"
-LLAVE_PROCESOS = "id_del_proceso"
+LLAVE_PROCESOS = "id_del_portafolio"
 
 FECHAS_CONTRATO = [
     "fecha_de_firma",
     "fecha_de_inicio_del_contrato",
     "fecha_de_fin_del_contrato",
 ]
-FECHA_PUBLICACION = "fecha_de_publicacion"  # en la tabla de procesos
+# Procesos trae dos columnas de fecha de publicación con nombres casi iguales.
+# fecha_de_publicacion está poblada en menos del 1% de los registros; la buena
+# es fecha_de_publicacion_del.
+FECHA_PUBLICACION = "fecha_de_publicacion_del"
 
 # Columnas que existen en ambas tablas pero con distinto nombre. Sin esta
 # traducción el filtro de entidad se pierde y la consulta de procesos sale sin

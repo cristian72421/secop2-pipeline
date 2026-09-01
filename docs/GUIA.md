@@ -260,8 +260,10 @@ Construye la base al nivel de contrato uniendo contratos con procesos: extrae
 ambas tablas, calcula duraciones, reconcilia los procesos y une por el
 identificador del proceso. Es el insumo del reporte descriptivo.
 
-**La llave se llama distinto en cada tabla:** `proceso_de_compra` en contratos e
-`id_del_proceso` en procesos.
+**La llave se llama distinto en cada tabla, y no es la evidente:**
+`proceso_de_compra` en contratos (`CO1.BDOS.*`) e **`id_del_portafolio`** en
+procesos. La columna `id_del_proceso` guarda otro identificador (`CO1.REQ.*`)
+que no aparece en contratos; unir por ahí da cero coincidencias.
 
 **Los filtros se adaptan, no se copian.** `filtros_para_procesos()` toma los
 filtros escritos para contratos y hace dos ajustes:
@@ -384,8 +386,15 @@ Cosas que no están documentadas en el portal y costaron tiempo:
   columnas.
 - **El portal no cachea valores de ejemplo para todas las columnas.** En la
   tabla de contratos casi ninguna los trae; en procesos, varias sí.
-- **La llave que relaciona contratos con procesos** se llama
-  `proceso_de_compra` en la tabla de contratos.
+- **La llave que relaciona contratos con procesos** es `proceso_de_compra` en
+  contratos e `id_del_portafolio` en procesos. Ambas guardan `CO1.BDOS.*`. El
+  `id_del_proceso` de la tabla de procesos es otra cosa (`CO1.REQ.*`).
+- **Procesos tiene dos fechas de publicación con nombres casi iguales**:
+  `fecha_de_publicacion` está poblada en menos del 1% de los registros y
+  `fecha_de_publicacion_del` en el 99%. Filtrar por la primera devuelve casi
+  nada sin que parezca un error.
+- **La entidad se escribe distinto según la tabla**: en procesos aparecen
+  nombres completos, aunque algunas entidades sí usan sigla.
 
 ---
 
@@ -408,11 +417,10 @@ que sí resuelve conflictos, se conserva porque responde a otro problema.
 
 **Sin resolver:**
 
-1. **`flujo_vigia.py` no se ha probado contra la API.** La llave y los filtros
-   están corregidos, pero falta confirmar contra datos reales que la columna de
-   procesos se llame `id_del_proceso` y la de publicación `fecha_de_publicacion`.
-   El registro dirá cuántos contratos cruzaron; si son cero, hay que ajustar
-   esos dos nombres.
+1. **`flujo_vigia.py` falta terminar de validar.** La llave (`id_del_portafolio`)
+   y la fecha (`fecha_de_publicacion_del`) están confirmadas contra los datos,
+   pero falta una corrida completa que muestre qué porcentaje de contratos
+   encuentra su proceso.
 2. **No hay pruebas automatizadas.** El error de las fechas se habría detectado
    con unas pocas líneas de prueba.
 3. **El constructor de filtros es limitado**: sin `LIKE`, sin `IN`, sin
