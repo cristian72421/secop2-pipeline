@@ -9,6 +9,7 @@ Monitoría de investigación - Beca Avanza, Universidad de los Andes.
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -216,10 +217,19 @@ with st.sidebar:
             "Máximo de filas", min_value=1, max_value=5_000_000,
             value=int(base.get("limite_total") or 5000), step=1000, key="sel_limite",
         )
+    token_entorno = os.getenv("SECOP_APP_TOKEN", "")
     app_token = st.text_input(
-        "App token de Socrata", value=cfg.get("app_token", ""), type="password",
-        help="Opcional. Sin token la API aplica límites más estrictos.",
+        "App token de Socrata", value=base.get("app_token", ""), type="password",
+        help="Opcional. Si está definido SECOP_APP_TOKEN, se usa ese y no hace "
+             "falta escribir nada aquí.",
     )
+    # Mismo criterio que token_efectivo() en el pipeline: manda lo escrito y,
+    # si no hay nada, la variable de entorno.
+    token = app_token or token_entorno
+    if token_entorno and not app_token:
+        st.caption("Usando el token de `SECOP_APP_TOKEN`.")
+    elif not token:
+        st.caption("Sin token: la API aplicará límites estrictos.")
     with st.expander("Opciones avanzadas"):
         tamano_pagina = st.number_input(
             "Filas por petición", min_value=1000, max_value=50_000,
@@ -271,7 +281,7 @@ for i, fila in enumerate(st.session_state.filas_filtro):
         opciones_val = cacheados
         if consultar:
             try:
-                opciones_val = valores_de(tabla, columna, app_token)
+                opciones_val = valores_de(tabla, columna, token)
             except Exception as exc:
                 opciones_val = cacheados
                 c2.warning(f"No se pudieron consultar los valores: {exc}")
@@ -367,7 +377,7 @@ e1, e2 = st.columns([1, 1])
 if e2.button("¿Cuántas filas hay?", icon=":material/pin:",
              help="Una sola consulta, sin descargar los datos."):
     try:
-        cliente = crear_cliente(app_token=app_token or None)
+        cliente = crear_cliente(app_token=token or None)
         try:
             total = contar_filas(cliente, tabla, filtros or None)
         finally:
@@ -377,7 +387,7 @@ if e2.button("¿Cuántas filas hay?", icon=":material/pin:",
             st.error("Esa combinación de filtros no devuelve ninguna fila.")
             if filtros:
                 st.caption("Filtro por filtro, para ver cuál es el que sobra:")
-                cliente = crear_cliente(app_token=app_token or None)
+                cliente = crear_cliente(app_token=token or None)
                 try:
                     st.dataframe(diagnosticar_filtros(cliente, tabla, filtros), hide_index=True)
                 finally:
@@ -405,7 +415,7 @@ if e1.button("Extraer datos", type="primary", icon=":material/download:"):
                 estado.write("Descargando contratos y procesos ...")
                 config_vigia = dict(cfg)
                 config_vigia.update({
-                    "app_token": app_token,
+                    "app_token": token,
                     "filtros": filtros,
                     "margen_meses_procesos": int(margen_meses),
                 })
@@ -413,7 +423,7 @@ if e1.button("Extraer datos", type="primary", icon=":material/download:"):
                 filas_crudas = len(limpio)
             else:
                 estado.write("Descargando ...")
-                cliente = crear_cliente(app_token=app_token or None)
+                cliente = crear_cliente(app_token=token or None)
                 try:
                     df = extraer_dataset(
                         cliente, tabla=tabla, filtros=filtros or None,
@@ -438,7 +448,7 @@ if e1.button("Extraer datos", type="primary", icon=":material/download:"):
             st.warning("La consulta no devolvió filas.")
             if filtros:
                 st.caption("Filtro por filtro, para ver cuál es el que sobra:")
-                cliente = crear_cliente(app_token=app_token or None)
+                cliente = crear_cliente(app_token=token or None)
                 try:
                     st.dataframe(diagnosticar_filtros(cliente, tabla, filtros), hide_index=True)
                 finally:
@@ -598,7 +608,8 @@ with st.expander("Guardar esta configuración"):
         "`config/config.yaml` o descargar aparte."
     )
     cfg_actual = {
-        "app_token": app_token,
+        # Nunca se escribe el token: este YAML puede terminar en el repositorio.
+        "app_token": "",
         "tabla": tabla,
         "tamano_pagina": int(tamano_pagina),
         "limite_total": None if sin_tope else int(limite_total),
@@ -643,7 +654,7 @@ with st.expander("Registro de la última corrida"):
     st.caption("Las últimas líneas de `logs/secop2.log`.")
     st.code(leer_log(60), language="log")
 
-    if app_token:
+    if token:
         st.info(
             "El app token no se escribe en el archivo: el repositorio es "
             "público. Para no pegarlo cada vez, defínelo como variable de "
