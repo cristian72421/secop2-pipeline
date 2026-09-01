@@ -230,6 +230,12 @@ with st.sidebar:
         st.caption("Usando el token de `SECOP_APP_TOKEN`.")
     elif not token:
         st.caption("Sin token: la API aplicará límites estrictos.")
+    autocargar = st.toggle(
+        "Cargar valores solos", value=True,
+        help="Al elegir una columna, consulta sus valores posibles. Desactívalo "
+             "si notas la interfaz lenta.",
+    )
+
     with st.expander("Opciones avanzadas"):
         tamano_pagina = st.number_input(
             "Filas por petición", min_value=1000, max_value=50_000,
@@ -249,11 +255,18 @@ st.subheader("1. Qué filas traer")
 try:
     meta = columnas_de(tabla)
 except Exception as exc:
-    meta = pd.DataFrame(columns=["campo", "nombre", "tipo", "ejemplos"])
+    meta = pd.DataFrame(columns=["campo", "nombre", "tipo", "cardinalidad", "ejemplos"])
     st.error(f"No se pudieron leer las columnas del dataset: {exc}")
 
 campos = meta["campo"].tolist()
 ejemplos_por_campo = dict(zip(meta["campo"], meta["ejemplos"])) if not meta.empty else {}
+cardinalidad_por_campo = (
+    dict(zip(meta["campo"], meta["cardinalidad"])) if "cardinalidad" in meta else {}
+)
+
+# Umbral por encima del cual no vale la pena pedir los valores: son columnas
+# donde casi cada fila es distinta y la lista no ayudaría a elegir.
+MAX_VALORES = 300
 
 filtros_cfg = base.get("filtros") or {}
 if "filas_filtro" not in st.session_state:
@@ -277,7 +290,14 @@ for i, fila in enumerate(st.session_state.filas_filtro):
     valor = ""
     if columna != SIN_FILTRO:
         cacheados = ejemplos_por_campo.get(columna, [])
-        consultar = columna in st.session_state.cols_consultadas
+        cardinalidad = cardinalidad_por_campo.get(columna)
+        pedido = columna in st.session_state.cols_consultadas
+
+        # Se consultan los valores solos cuando no hay ejemplos en caché y la
+        # columna no es de las que tienen un valor distinto por fila.
+        vale_la_pena = cardinalidad is None or cardinalidad <= MAX_VALORES
+        consultar = pedido or (autocargar and not cacheados and vale_la_pena)
+
         opciones_val = cacheados
         if consultar:
             try:
@@ -289,8 +309,13 @@ for i, fila in enumerate(st.session_state.filas_filtro):
         valor = selector_de_valor(c2, opciones_val, fila["valor"], f"f_val_{i}", primera)
 
         if not opciones_val and not consultar:
-            if c2.button("Ver valores posibles", key=f"f_load_{i}",
-                         help="Consulta a la API qué valores tiene esta columna."):
+            ayuda = (
+                f"Esta columna tiene {cardinalidad:,} valores distintos: la lista "
+                "no ayudaría a elegir.".replace(",", ".")
+                if cardinalidad and not vale_la_pena
+                else "Consulta a la API qué valores tiene esta columna."
+            )
+            if c2.button("Ver valores posibles", key=f"f_load_{i}", help=ayuda):
                 st.session_state.cols_consultadas.add(columna)
                 st.rerun()
 
@@ -335,7 +360,8 @@ with st.expander(f"Ver las {len(campos)} columnas de esta tabla"):
     )
     if not meta.empty:
         st.dataframe(meta.assign(ejemplos=meta["ejemplos"].str.join(" · ")),
-                     hide_index=True)
+                     hide_index=True, column_config={
+                         "cardinalidad": st.column_config.NumberColumn("valores distintos")})
 
 # ------------------------------ Procesamiento -------------------------------
 st.subheader("2. Cómo limpiar")

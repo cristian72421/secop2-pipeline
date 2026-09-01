@@ -64,11 +64,20 @@ def listar_columnas(tabla: str) -> pd.DataFrame:
         # datos del contrato y solo ensucian la lista.
         if campo.startswith(":"):
             continue
-        cache = (col.get("cachedContents") or {}).get("top") or []
+        contenidos = col.get("cachedContents") or {}
+        cache = contenidos.get("top") or []
+        # La cardinalidad no siempre viene; cuando está, evita consultar los
+        # valores de columnas donde cada fila es distinta.
+        try:
+            cardinalidad = int(contenidos["cardinality"])
+        except (KeyError, TypeError, ValueError):
+            cardinalidad = None
+
         filas.append({
             "campo": campo,
             "nombre": col.get("name"),
             "tipo": col.get("dataTypeName"),
+            "cardinalidad": cardinalidad,
             "ejemplos": [str(v.get("item")) for v in cache[:15] if v.get("item") is not None],
         })
 
