@@ -89,6 +89,30 @@ def texto_a_lista(texto: str) -> list[str]:
     return [linea.strip() for linea in texto.splitlines() if linea.strip()]
 
 
+def formato_pesos(valor) -> str:
+    """Miles con punto, como se escriben los montos en Colombia."""
+    if pd.isna(valor):
+        return ""
+    return f"{valor:,.0f}".replace(",", ".")
+
+
+def escala_monetaria(maximo: float) -> tuple[float, str]:
+    """
+    Divisor y nombre de la unidad, según la magnitud de los datos.
+
+    Los montos de contratación llegan a los miles de millones de pesos, y un eje
+    con doce dígitos es ilegible. Se muestra en la unidad que deje entre uno y
+    cuatro dígitos enteros.
+    """
+    if maximo >= 1e9:
+        return 1e9, "miles de millones"
+    if maximo >= 1e6:
+        return 1e6, "millones"
+    if maximo >= 1e3:
+        return 1e3, "miles"
+    return 1, "pesos"
+
+
 @st.cache_data(show_spinner="Leyendo las columnas del dataset ...")
 def columnas_de(tabla: str) -> pd.DataFrame:
     return listar_columnas(tabla)
@@ -556,7 +580,16 @@ else:
         )
         vista = df[seleccion] if seleccion else df
 
-        st.dataframe(vista.head(200), hide_index=True)
+        # Las columnas de moneda se muestran con separador de miles; sin él, un
+        # valor de doce dígitos es imposible de comparar de un vistazo.
+        try:
+            config_cols = {
+                c: st.column_config.NumberColumn(format="localized")
+                for c in texto_a_lista(txt_moneda) if c in vista.columns
+            }
+        except Exception:
+            config_cols = {}
+        st.dataframe(vista.head(200), hide_index=True, column_config=config_cols)
         st.caption(
             f"Primeras 200 filas de {len(vista):,}".replace(",", ".")
             + f" · {vista.shape[1]} de {df.shape[1]} columnas."
@@ -598,12 +631,21 @@ else:
 
             if col_montos:
                 st.markdown("**Valor total por mes**")
-                montos = pd.to_numeric(df[col_montos[0]], errors="coerce")
+                col_monto = st.selectbox("Monto", col_montos, label_visibility="collapsed")
+                montos = pd.to_numeric(df[col_monto], errors="coerce")
                 fechas = pd.to_datetime(df[elegida_f], errors="coerce")
                 suma = montos.groupby(fechas.dt.to_period("M")).sum().sort_index()
                 suma.index = suma.index.astype(str)
+
+                divisor, unidad = escala_monetaria(suma.max())
+                suma = (suma / divisor).round(2)
+                suma.name = f"{unidad} de pesos"
                 st.bar_chart(suma, color=COLOR, height=240,
-                             x_label="Mes", y_label=col_montos[0])
+                             x_label="Mes", y_label=f"{unidad} de pesos")
+                st.caption(
+                    f"Total del periodo: **${formato_pesos(montos.sum())}** · "
+                    f"mediana por contrato: ${formato_pesos(montos.median())}"
+                )
 
         # Categóricas: solo las que tienen un número de valores legible.
         # columnas_comparables descarta las que llegan como diccionario: nunique
@@ -624,7 +666,8 @@ else:
         numericas = df.select_dtypes("number")
         if not numericas.empty:
             with st.expander("Estadísticas de las columnas numéricas"):
-                st.dataframe(numericas.describe().T)
+                resumen = numericas.describe().T
+                st.dataframe(resumen.style.format(formato_pesos))
 
 # --------------------------- Guardar la selección ---------------------------
 st.divider()
