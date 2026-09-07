@@ -131,9 +131,15 @@ def columnas_de(tabla: str) -> pd.DataFrame:
     return listar_columnas(tabla)
 
 
+# Segundos que se le conceden a la consulta de sugerencias. Es corto a
+# propósito: si una columna no responde rápido, no vale la pena bloquear el
+# formulario por ella.
+ESPERA_SUGERENCIAS = 12
+
+
 @st.cache_data(show_spinner="Consultando los valores ...")
 def valores_de(tabla: str, columna: str, token: str) -> list[str]:
-    cliente = crear_cliente(app_token=token or None)
+    cliente = crear_cliente(app_token=token or None, timeout=ESPERA_SUGERENCIAS)
     try:
         df = valores_distintos(cliente, tabla, columna)
     finally:
@@ -331,13 +337,12 @@ for i, fila in enumerate(st.session_state.filas_filtro):
         cardinalidad = cardinalidad_por_campo.get(columna)
         pedido = columna in st.session_state.cols_consultadas
 
-        # Solo se consulta sola una columna cuya cardinalidad el portal declara
-        # y es pequeña. Si no la declara, el group by recorrería la tabla
-        # entera sin saber si vale la pena, y en las tablas grandes eso agota
-        # el tiempo de espera; en ese caso queda el botón.
-        vale_la_pena = cardinalidad is not None and cardinalidad <= MAX_VALORES
+        # Se intenta siempre, salvo que el portal declare que la columna tiene
+        # demasiados valores distintos. El intento tiene un tiempo corto, así
+        # que una columna lenta cuesta unos segundos y no bloquea el formulario.
+        demasiados = cardinalidad is not None and cardinalidad > MAX_VALORES
         fallida = columna in st.session_state.cols_fallidas
-        consultar = (pedido or (autocargar and not cacheados and vale_la_pena)) and not fallida
+        consultar = (pedido or (autocargar and not cacheados and not demasiados)) and not fallida
 
         opciones_val = cacheados
         if consultar:
@@ -350,16 +355,15 @@ for i, fila in enumerate(st.session_state.filas_filtro):
                 st.session_state.cols_fallidas.add(columna)
                 st.session_state.cols_consultadas.discard(columna)
                 agotado = "timed out" in str(exc).lower()
-                c2.warning(
-                    "La consulta de valores de esta columna tardó demasiado: "
-                    "es una tabla grande y esta columna no está indexada. "
-                    "Escribe el valor a mano."
+                c2.caption(
+                    "Esta columna tarda demasiado en listar sus valores. "
+                    "Escribe el valor a mano, o usa el botón para insistir."
                     if agotado else f"No se pudieron consultar los valores: {exc}"
                 )
 
         valor = selector_de_valor(c2, opciones_val, fila["valor"], f"f_val_{i}", primera)
 
-        if not opciones_val and not consultar:
+        if not opciones_val and (not consultar or fallida):
             if cardinalidad is None:
                 ayuda = ("El portal no informa cuántos valores tiene esta columna. "
                          "Consultarlos puede tardar en tablas grandes.")
@@ -369,6 +373,7 @@ for i, fila in enumerate(st.session_state.filas_filtro):
             else:
                 ayuda = "Consulta a la API qué valores tiene esta columna."
             if c2.button("Ver valores posibles", key=f"f_load_{i}", help=ayuda):
+                st.session_state.cols_fallidas.discard(columna)
                 st.session_state.cols_consultadas.add(columna)
                 st.rerun()
 
