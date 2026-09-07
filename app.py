@@ -355,24 +355,40 @@ for i, fila in enumerate(st.session_state.filas_filtro):
                 st.session_state.cols_fallidas.add(columna)
                 st.session_state.cols_consultadas.discard(columna)
                 agotado = "timed out" in str(exc).lower()
-                c2.caption(
-                    "Esta columna tarda demasiado en listar sus valores. "
-                    "Escribe el valor a mano, o usa el botón para insistir."
-                    if agotado else f"No se pudieron consultar los valores: {exc}"
-                )
+                if not agotado:
+                    c2.caption(f"No se pudieron consultar los valores: {exc}")
+                elif cacheados:
+                    c2.caption(
+                        "La lista completa tarda demasiado; arriba solo hay "
+                        "algunos ejemplos. Escribe el valor a mano si no está."
+                    )
+                else:
+                    c2.caption(
+                        "Esta columna tarda demasiado en listar sus valores. "
+                        "Escribe el valor a mano."
+                    )
 
         valor = selector_de_valor(c2, opciones_val, fila["valor"], f"f_val_{i}", primera)
 
-        if not opciones_val and (not consultar or fallida):
-            if cardinalidad is None:
+        # El botón aparece si la consulta falló —aunque haya ejemplos en caché,
+        # porque esos son parciales— o si nunca se intentó.
+        if fallida or (not opciones_val and not consultar):
+            if fallida:
+                etiqueta = "Reintentar"
+                ayuda = "Vuelve a pedir la lista completa. Puede tardar."
+            elif cardinalidad is None:
+                etiqueta = "Ver valores posibles"
                 ayuda = ("El portal no informa cuántos valores tiene esta columna. "
                          "Consultarlos puede tardar en tablas grandes.")
-            elif not vale_la_pena:
+            elif demasiados:
+                etiqueta = "Ver valores posibles"
                 ayuda = (f"Esta columna tiene {cardinalidad:,} valores distintos: "
                          "la lista no ayudaría a elegir.".replace(",", "."))
             else:
+                etiqueta = "Ver valores posibles"
                 ayuda = "Consulta a la API qué valores tiene esta columna."
-            if c2.button("Ver valores posibles", key=f"f_load_{i}", help=ayuda):
+
+            if c2.button(etiqueta, key=f"f_load_{i}", help=ayuda):
                 st.session_state.cols_fallidas.discard(columna)
                 st.session_state.cols_consultadas.add(columna)
                 st.rerun()
