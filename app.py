@@ -865,14 +865,20 @@ else:
             )
             # En millones: en pesos crudos las cifras del recuadro emergente
             # salen con once dígitos seguidos y no hay quien las lea.
-            en_millones = dispersion.assign(valor=dispersion["valor"] / 1e6)
+            # La columna se llama "millones" y no "valor del contrato" porque el
+            # recuadro emergente antepone "Max of ..." al nombre del campo y con
+            # un nombre largo se corta. Se redondea a dos decimales por lo mismo.
+            en_millones = pd.DataFrame({
+                "millones": (dispersion["valor"] / 1e6).round(2),
+                "modalidad": dispersion["modalidad"],
+            })
             caja = (
                 alt.Chart(en_millones)
                 .mark_boxplot(size=26, outliers={"size": 12, "opacity": 0.5})
                 .encode(
                     x=alt.X("modalidad:N", title="", sort="-y",
                             axis=alt.Axis(labelAngle=-25, labelLimit=200)),
-                    y=alt.Y("valor:Q", scale=alt.Scale(type="log"),
+                    y=alt.Y("millones:Q", scale=alt.Scale(type="log"),
                             title="Valor del contrato (millones de pesos)",
                             axis=alt.Axis(format=",.0f")),
                     color=alt.Color("modalidad:N", legend=None,
