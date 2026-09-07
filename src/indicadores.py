@@ -174,6 +174,10 @@ def concentracion_proveedores(
     top = por_proveedor.head(n)
     return {
         "proveedores": len(por_proveedor),
+        "n": min(n, len(por_proveedor)),
+        "pct_proveedores": 100 * min(n, len(por_proveedor)) / len(por_proveedor),
+        "contratos_top": int(top["contratos"].sum()),
+        "contratos_total": len(df),
         "pct_contratos": 100 * top["contratos"].sum() / len(df) if len(df) else None,
         "pct_valor": 100 * top["valor"].sum() / total_valor if total_valor else None,
         "tabla": top,

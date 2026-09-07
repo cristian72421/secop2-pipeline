@@ -965,12 +965,35 @@ else:
         conc = ind.concentracion_proveedores(df)
         if conc:
             st.markdown("#### Concentración de proveedores")
+            # Cada tarjeta dice sobre qué total está calculado su porcentaje:
+            # "top 10: contratos 0,3%" no deja claro si es de contratos o de
+            # proveedores, y se presta a leerlo al revés.
             c1, c2, c3 = st.columns(3)
-            c1.metric("Proveedores distintos", f"{conc['proveedores']:,}".replace(",", "."))
+            c1.metric(
+                f"Los {conc['n']} mayores proveedores",
+                f"{conc['pct_proveedores']:.1f}%",
+                help=f"De los {conc['proveedores']:,} proveedores distintos.".replace(",", "."),
+                border=True,
+            )
             if conc["pct_contratos"] is not None:
-                c2.metric("Top 10: contratos", f"{conc['pct_contratos']:.1f}%")
+                c2.metric(
+                    "Sus contratos",
+                    f"{conc['contratos_top']} de {conc['contratos_total']:,}".replace(",", "."),
+                    delta=f"{conc['pct_contratos']:.1f}% de los contratos",
+                    delta_color="off", border=True,
+                )
             if conc["pct_valor"] is not None:
-                c3.metric("Top 10: valor", f"{conc['pct_valor']:.1f}%")
+                c3.metric(
+                    "Su parte del dinero", f"{conc['pct_valor']:.1f}%",
+                    help="Porcentaje del valor total contratado en el periodo.",
+                    border=True,
+                )
+
+            st.markdown(
+                f"**{conc['contratos_top']} contratos, de "
+                f"{conc['contratos_total']:,}".replace(",", ".")
+                + f", concentran el {conc['pct_valor']:.0f}% del valor.**"
+            )
             curva = ind.curva_concentracion(df)
             if not curva.empty:
                 st.caption(
