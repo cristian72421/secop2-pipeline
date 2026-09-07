@@ -569,8 +569,9 @@ if e1.button("Extraer datos", type="primary", icon=":material/download:"):
 # que se recarga y el mensaje viaja en session_state.
 recien_guardado = st.session_state.pop("recien_guardado", None)
 if recien_guardado:
-    st.success(f"Guardado en `data/processed` como `{recien_guardado}`.",
-               icon=":material/save:")
+    # Aviso flotante: el botón de guardar está al final de la página, así que
+    # un mensaje aquí arriba no se vería sin subir hasta él.
+    st.toast(f"Guardado en data/processed: {recien_guardado}", icon="✅")
 
 anteriores = sorted(DIR_PROCESADO.glob("*.csv"), key=lambda f: f.stat().st_mtime, reverse=True)
 if anteriores:
