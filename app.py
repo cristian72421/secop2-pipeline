@@ -346,10 +346,15 @@ for i, fila in enumerate(st.session_state.filas_filtro):
         consultar = (pedido or (autocargar and not cacheados and not demasiados)) and not fallida
 
         opciones_val = cacheados
+        # `fallida` refleja intentos anteriores; este marca el fallo de ahora,
+        # para poder ofrecer el reintento en la misma pantalla y no en la
+        # siguiente recarga.
+        fallo_ahora = False
         if consultar:
             try:
                 opciones_val = valores_de(tabla, columna, token)
             except Exception as exc:
+                fallo_ahora = True
                 opciones_val = cacheados
                 # Se recuerda el fallo para no reintentar en cada recarga: si
                 # agotó el tiempo una vez, lo volverá a agotar.
@@ -365,16 +370,17 @@ for i, fila in enumerate(st.session_state.filas_filtro):
                     )
                 else:
                     c2.caption(
-                        "Esta columna tarda demasiado en listar sus valores. "
-                        "Escribe el valor a mano."
+                        "Esta columna tardó más de "
+                        f"{ESPERA_SUGERENCIAS} segundos en listar sus valores. "
+                        "Escribe el valor a mano, o reintenta abajo."
                     )
 
         valor = selector_de_valor(c2, opciones_val, fila["valor"], f"f_val_{i}", primera)
 
-        # El botón aparece si la consulta falló —aunque haya ejemplos en caché,
-        # porque esos son parciales— o si nunca se intentó.
-        if fallida or (not opciones_val and not consultar):
-            if fallida:
+        # El botón aparece si la consulta falló —ahora o antes, y aunque haya
+        # ejemplos en caché, porque esos son parciales— o si nunca se intentó.
+        if fallida or fallo_ahora or (not opciones_val and not consultar):
+            if fallida or fallo_ahora:
                 etiqueta = "Reintentar"
                 ayuda = "Vuelve a pedir la lista completa. Puede tardar."
             elif cardinalidad is None:
