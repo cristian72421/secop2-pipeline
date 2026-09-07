@@ -766,16 +766,29 @@ else:
                              label_visibility="collapsed", key="forma_modalidad")
 
             if forma == "Barras":
+                def barras(serie: pd.Series, titulo: str, formato: str):
+                    datos = serie.head(8).rename("v").reset_index()
+                    datos.columns = ["modalidad", "v"]
+                    return (
+                        alt.Chart(datos, title=titulo)
+                        .mark_bar(color=COLOR_NORMAL, cornerRadiusEnd=3)
+                        .encode(
+                            x=alt.X("v:Q", title="",
+                                    axis=alt.Axis(format=formato)),
+                            y=alt.Y("modalidad:N", title="", sort="-x",
+                                    axis=alt.Axis(labelLimit=320)),
+                            tooltip=["modalidad", alt.Tooltip("v:Q", format=formato, title=titulo)],
+                        )
+                        .properties(height=300)
+                    )
+
+                div, uni = escala_monetaria(modalidad["valor"].max())
                 m1, m2 = st.columns(2)
-                with m1:
-                    st.bar_chart(modalidad["contratos"].head(8).sort_values(),
-                                 color=COLOR_NORMAL, horizontal=True, height=280,
-                                 x_label="Contratos", y_label="")
-                with m2:
-                    div, uni = escala_monetaria(modalidad["valor"].max())
-                    st.bar_chart((modalidad["valor"] / div).head(8).sort_values(),
-                                 color=COLOR_NORMAL, horizontal=True, height=280,
-                                 x_label=f"Valor ({uni} de pesos)", y_label="")
+                m1.altair_chart(barras(modalidad["contratos"], "Contratos", ",.0f"),
+                                use_container_width=True)
+                m2.altair_chart(barras(modalidad["valor"] / div,
+                                       f"Valor ({uni} de pesos)", ",.1f"),
+                                use_container_width=True)
             else:
                 # La torta necesita pocas porciones: se dejan las cuatro
                 # mayores de cada medida y el resto va a "Otras".
@@ -850,16 +863,22 @@ else:
                 "Cada punto es un contrato, en escala logarítmica. El diagrama "
                 "de caja marca la mediana y el rango donde cae la mitad central."
             )
+            # En millones: en pesos crudos las cifras del recuadro emergente
+            # salen con once dígitos seguidos y no hay quien las lea.
+            en_millones = dispersion.assign(valor=dispersion["valor"] / 1e6)
             caja = (
-                alt.Chart(dispersion)
+                alt.Chart(en_millones)
                 .mark_boxplot(size=18, outliers={"size": 12, "opacity": 0.5})
                 .encode(
-                    x=alt.X("valor:Q", scale=alt.Scale(type="log"), title="Valor del contrato (pesos)"),
-                    y=alt.Y("modalidad:N", title="", sort="-x"),
+                    x=alt.X("valor:Q", scale=alt.Scale(type="log"),
+                            title="Valor del contrato (millones de pesos)",
+                            axis=alt.Axis(format=",.0f")),
+                    y=alt.Y("modalidad:N", title="", sort="-x",
+                            axis=alt.Axis(labelLimit=320)),
                     color=alt.Color("modalidad:N", legend=None,
                                     scale=alt.Scale(range=PALETA)),
                 )
-                .properties(height=240)
+                .properties(height=280)
             )
             st.altair_chart(caja, use_container_width=True)
 
@@ -935,8 +954,18 @@ else:
                 "Por tramos de orden de magnitud: en escala lineal un contrato "
                 "de miles de millones aplasta a todos los demás."
             )
-            st.bar_chart(valores, color=COLOR_NORMAL, horizontal=True, height=280,
-                         x_label="Contratos", y_label="")
+            datos_val = valores.reset_index()
+            datos_val.columns = ["tramo", "contratos"]
+            st.altair_chart(
+                alt.Chart(datos_val).mark_bar(color=COLOR_NORMAL, cornerRadiusEnd=3)
+                .encode(
+                    x=alt.X("contratos:Q", title="Contratos"),
+                    y=alt.Y("tramo:N", title="", sort=None,
+                            axis=alt.Axis(labelLimit=320)),
+                    tooltip=["tramo", "contratos"],
+                ).properties(height=300),
+                use_container_width=True,
+            )
 
         calidad = ind.calidad_datos(df)
         if not calidad.empty:
