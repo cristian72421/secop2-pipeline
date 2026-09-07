@@ -868,17 +868,17 @@ else:
             en_millones = dispersion.assign(valor=dispersion["valor"] / 1e6)
             caja = (
                 alt.Chart(en_millones)
-                .mark_boxplot(size=18, outliers={"size": 12, "opacity": 0.5})
+                .mark_boxplot(size=26, outliers={"size": 12, "opacity": 0.5})
                 .encode(
-                    x=alt.X("valor:Q", scale=alt.Scale(type="log"),
+                    x=alt.X("modalidad:N", title="", sort="-y",
+                            axis=alt.Axis(labelAngle=-25, labelLimit=200)),
+                    y=alt.Y("valor:Q", scale=alt.Scale(type="log"),
                             title="Valor del contrato (millones de pesos)",
                             axis=alt.Axis(format=",.0f")),
-                    y=alt.Y("modalidad:N", title="", sort="-x",
-                            axis=alt.Axis(labelLimit=320)),
                     color=alt.Color("modalidad:N", legend=None,
                                     scale=alt.Scale(range=PALETA)),
                 )
-                .properties(height=280)
+                .properties(height=420)
             )
             st.altair_chart(caja, use_container_width=True)
 
