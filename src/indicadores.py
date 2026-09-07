@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # unido con Procesos de Contratación.
 COLUMNAS = {
     "modalidad": "modalidad_de_contratacion",
+    "justificacion": "justificacion_modalidad_de",
     "tipo": "tipo_de_contrato",
     "valor": "valor_del_contrato",
     "firma_a_inicio": "dias_firma_a_inicio",
@@ -327,3 +328,40 @@ def dias_firma_a_inicio(df: pd.DataFrame, columnas: dict | None = None) -> pd.Da
         "dias": dias,
         "estado": np.where(dias < 0, "Firmado tras iniciar", "En regla"),
     })
+
+
+def justificacion_directa(df: pd.DataFrame, columnas: dict | None = None) -> pd.DataFrame:
+    """
+    Causal invocada en los contratos de contratación directa.
+
+    La contratación directa solo procede en las causales que enumera la Ley
+    1150 de 2007 (art. 2, num. 4), y el dato queda registrado en el contrato.
+    Desagregar por causal cambia la lectura: un 98% de contratación directa que
+    es en su totalidad prestación de servicios describe la planta de
+    contratistas de la entidad, no una anomalía.
+
+    Las causales infrecuentes —urgencia manifiesta, ausencia de pluralidad de
+    oferentes— son las que conviene revisar caso por caso, y quedan visibles
+    justamente por ser pocas.
+    """
+    col_mod = _col(df, "modalidad", columnas)
+    col_just = _col(df, "justificacion", columnas)
+    if col_mod is None or col_just is None:
+        return pd.DataFrame()
+
+    directa = df[df[col_mod].astype(str).str.lower().str.contains("directa")]
+    if directa.empty:
+        return pd.DataFrame()
+
+    valores = _num(directa, _col(df, "valor", columnas))
+    tabla = pd.DataFrame({
+        "causal": directa[col_just].fillna("Sin dato"),
+        "valor": valores if not valores.empty else 0,
+    })
+    resumen_causal = tabla.groupby("causal").agg(
+        contratos=("valor", "size"), valor=("valor", "sum"),
+    ).sort_values("contratos", ascending=False)
+    resumen_causal["% de los directos"] = (
+        100 * resumen_causal["contratos"] / len(directa)
+    ).round(2)
+    return resumen_causal

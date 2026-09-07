@@ -874,6 +874,29 @@ else:
                     "agrupa en «Otras». Pasa el cursor para ver el porcentaje."
                 )
 
+        causales = ind.justificacion_directa(df)
+        if not causales.empty:
+            st.markdown("#### Causal invocada en la contratación directa")
+            st.caption(
+                "La contratación directa solo procede en las causales de la Ley "
+                "1150 de 2007. Desagregarlas cambia la lectura: la mayoría suele "
+                "ser prestación de servicios, que describe la planta de "
+                "contratistas. Las causales infrecuentes son las que conviene "
+                "revisar caso por caso."
+            )
+            mostrar = causales.copy()
+            div_c, uni_c = escala_monetaria(mostrar["valor"].max())
+            mostrar["valor"] = (mostrar["valor"] / div_c).round(2)
+            st.dataframe(mostrar.rename(columns={"valor": f"valor ({uni_c})"}))
+
+            infrecuentes = causales[causales["contratos"] <= 10]
+            if not infrecuentes.empty:
+                st.caption(
+                    "Causales con 10 contratos o menos, revisables uno por uno: "
+                    + ", ".join(f"**{c}** ({n})" for c, n
+                                in infrecuentes["contratos"].items())
+                )
+
         detalle_firma = ind.dias_firma_a_inicio(df)
         if not detalle_firma.empty:
             st.markdown("#### Días entre la firma y el inicio")
