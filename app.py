@@ -596,7 +596,8 @@ if anteriores:
                             label_visibility="collapsed")
         if h2.button("Abrir", icon=":material/folder_open:"):
             ruta = DIR_PROCESADO / cual
-            leido = pd.read_csv(ruta, low_memory=False)
+            # sep=None con el motor de Python detecta si el archivo usa «,» o «;»
+            leido = pd.read_csv(ruta, low_memory=False, sep=None, engine="python")
             st.session_state.resultado = {
                 "df": leido, "filas_crudas": len(leido),
                 "tabla": tabla, "vigia": False, "origen": cual,
@@ -658,11 +659,28 @@ else:
             + f" · {vista.shape[1]} de {df.shape[1]} columnas."
         )
 
+        formato = st.radio(
+            "Formato del archivo",
+            ["Excel en español", "Estándar internacional"],
+            horizontal=True, key="formato_csv",
+            captions=[
+                "Separador «;» y coma decimal. Se abre bien con doble clic en "
+                "Excel configurado en español.",
+                "Separador «,» y punto decimal. Para pandas, R o Excel en inglés.",
+            ],
+        )
+        # Excel en español lee el punto como separador de miles, así que un
+        # valor como 46554022318.0 se interpreta mal o queda como texto, y
+        # entonces ordenar por esa columna da resultados alfabéticos.
+        opciones_csv = (
+            {"sep": ";", "decimal": ","} if formato == "Excel en español" else {}
+        )
+
         d1, d2 = st.columns(2)
         nombre_archivo = f"secop2_{'vigia' if res['vigia'] else res['tabla']}"
         d1.download_button(
             "Descargar CSV", icon=":material/download:",
-            data=vista.to_csv(index=False).encode("utf-8-sig"),
+            data=vista.to_csv(index=False, **opciones_csv).encode("utf-8-sig"),
             file_name=f"{nombre_archivo}.csv", mime="text/csv",
         )
         if d2.button("Guardar en data/processed", icon=":material/save:"):
@@ -670,7 +688,7 @@ else:
                 DIR_PROCESADO.mkdir(parents=True, exist_ok=True)
                 marca = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
                 destino = DIR_PROCESADO / f"{nombre_archivo}_{marca}.csv"
-                vista.to_csv(destino, index=False, encoding="utf-8-sig")
+                vista.to_csv(destino, index=False, encoding="utf-8-sig", **opciones_csv)
                 logger.info("Guardado desde la interfaz en %s", destino)
                 st.session_state.recien_guardado = destino.name
                 st.rerun()
