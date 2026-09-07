@@ -762,16 +762,57 @@ else:
                 "Las dos gráficas rara vez coinciden: una modalidad puede "
                 "dominar en número de contratos y ser marginal en dinero."
             )
-            m1, m2 = st.columns(2)
-            with m1:
-                st.bar_chart(modalidad["contratos"].head(8).sort_values(),
-                             color=COLOR_NORMAL, horizontal=True, height=280,
-                             x_label="Contratos", y_label="")
-            with m2:
-                div, uni = escala_monetaria(modalidad["valor"].max())
-                st.bar_chart((modalidad["valor"] / div).head(8).sort_values(),
-                             color=COLOR_NORMAL, horizontal=True, height=280,
-                             x_label=f"Valor ({uni} de pesos)", y_label="")
+            forma = st.radio("Forma", ["Barras", "Torta"], horizontal=True,
+                             label_visibility="collapsed", key="forma_modalidad")
+
+            if forma == "Barras":
+                m1, m2 = st.columns(2)
+                with m1:
+                    st.bar_chart(modalidad["contratos"].head(8).sort_values(),
+                                 color=COLOR_NORMAL, horizontal=True, height=280,
+                                 x_label="Contratos", y_label="")
+                with m2:
+                    div, uni = escala_monetaria(modalidad["valor"].max())
+                    st.bar_chart((modalidad["valor"] / div).head(8).sort_values(),
+                                 color=COLOR_NORMAL, horizontal=True, height=280,
+                                 x_label=f"Valor ({uni} de pesos)", y_label="")
+            else:
+                # La torta necesita pocas porciones: se dejan las cuatro
+                # mayores de cada medida y el resto va a "Otras".
+                def torta(serie: pd.Series, titulo: str):
+                    ordenada = serie.sort_values(ascending=False)
+                    principales = ordenada.head(4)
+                    resto = ordenada.iloc[4:].sum()
+                    if resto:
+                        principales = pd.concat([principales, pd.Series({"Otras": resto})])
+                    datos = principales.rename("valor").reset_index()
+                    datos.columns = ["modalidad", "valor"]
+                    datos["pct"] = 100 * datos["valor"] / datos["valor"].sum()
+                    return (
+                        alt.Chart(datos, title=titulo)
+                        .mark_arc(stroke="#00000022", strokeWidth=2)
+                        .encode(
+                            theta=alt.Theta("valor:Q", stack=True),
+                            color=alt.Color("modalidad:N", title="Modalidad",
+                                            sort=datos["modalidad"].tolist(),
+                                            scale=alt.Scale(range=PALETA)),
+                            order=alt.Order("valor:Q", sort="descending"),
+                            tooltip=["modalidad",
+                                     alt.Tooltip("valor:Q", format=",.0f"),
+                                     alt.Tooltip("pct:Q", format=".2f", title="% del total")],
+                        )
+                        .properties(height=300)
+                    )
+
+                m1, m2 = st.columns(2)
+                m1.altair_chart(torta(modalidad["contratos"], "Contratos"),
+                                use_container_width=True)
+                m2.altair_chart(torta(modalidad["valor"], "Valor"),
+                                use_container_width=True)
+                st.caption(
+                    "Las cuatro modalidades mayores de cada medida; el resto se "
+                    "agrupa en «Otras». Pasa el cursor para ver el porcentaje."
+                )
 
         detalle_firma = ind.dias_firma_a_inicio(df)
         if not detalle_firma.empty:
