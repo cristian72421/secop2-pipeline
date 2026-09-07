@@ -194,6 +194,7 @@ def aplicar_consulta(consulta: dict) -> None:
 cfg = cargar_defaults()
 st.session_state.setdefault("resultado", None)
 st.session_state.setdefault("cols_consultadas", set())
+st.session_state.setdefault("cols_fallidas", set())
 st.session_state.setdefault("consulta_cargada", None)
 
 # Los valores iniciales salen de la consulta cargada si hay una; si no, del YAML.
@@ -330,10 +331,13 @@ for i, fila in enumerate(st.session_state.filas_filtro):
         cardinalidad = cardinalidad_por_campo.get(columna)
         pedido = columna in st.session_state.cols_consultadas
 
-        # Se consultan los valores solos cuando no hay ejemplos en caché y la
-        # columna no es de las que tienen un valor distinto por fila.
-        vale_la_pena = cardinalidad is None or cardinalidad <= MAX_VALORES
-        consultar = pedido or (autocargar and not cacheados and vale_la_pena)
+        # Solo se consulta sola una columna cuya cardinalidad el portal declara
+        # y es pequeña. Si no la declara, el group by recorrería la tabla
+        # entera sin saber si vale la pena, y en las tablas grandes eso agota
+        # el tiempo de espera; en ese caso queda el botón.
+        vale_la_pena = cardinalidad is not None and cardinalidad <= MAX_VALORES
+        fallida = columna in st.session_state.cols_fallidas
+        consultar = (pedido or (autocargar and not cacheados and vale_la_pena)) and not fallida
 
         opciones_val = cacheados
         if consultar:
@@ -341,17 +345,29 @@ for i, fila in enumerate(st.session_state.filas_filtro):
                 opciones_val = valores_de(tabla, columna, token)
             except Exception as exc:
                 opciones_val = cacheados
-                c2.warning(f"No se pudieron consultar los valores: {exc}")
+                # Se recuerda el fallo para no reintentar en cada recarga: si
+                # agotó el tiempo una vez, lo volverá a agotar.
+                st.session_state.cols_fallidas.add(columna)
+                st.session_state.cols_consultadas.discard(columna)
+                agotado = "timed out" in str(exc).lower()
+                c2.warning(
+                    "La consulta de valores de esta columna tardó demasiado: "
+                    "es una tabla grande y esta columna no está indexada. "
+                    "Escribe el valor a mano."
+                    if agotado else f"No se pudieron consultar los valores: {exc}"
+                )
 
         valor = selector_de_valor(c2, opciones_val, fila["valor"], f"f_val_{i}", primera)
 
         if not opciones_val and not consultar:
-            ayuda = (
-                f"Esta columna tiene {cardinalidad:,} valores distintos: la lista "
-                "no ayudaría a elegir.".replace(",", ".")
-                if cardinalidad and not vale_la_pena
-                else "Consulta a la API qué valores tiene esta columna."
-            )
+            if cardinalidad is None:
+                ayuda = ("El portal no informa cuántos valores tiene esta columna. "
+                         "Consultarlos puede tardar en tablas grandes.")
+            elif not vale_la_pena:
+                ayuda = (f"Esta columna tiene {cardinalidad:,} valores distintos: "
+                         "la lista no ayudaría a elegir.".replace(",", "."))
+            else:
+                ayuda = "Consulta a la API qué valores tiene esta columna."
             if c2.button("Ver valores posibles", key=f"f_load_{i}", help=ayuda):
                 st.session_state.cols_consultadas.add(columna)
                 st.rerun()
