@@ -968,12 +968,18 @@ else:
             # Cada tarjeta dice sobre qué total está calculado su porcentaje:
             # "top 10: contratos 0,3%" no deja claro si es de contratos o de
             # proveedores, y se presta a leerlo al revés.
-            c1, c2, c3 = st.columns(3)
-            c1.metric(
-                f"Los {conc['n']} mayores proveedores",
-                f"{conc['pct_proveedores']:.1f}%",
-                help=f"De los {conc['proveedores']:,} proveedores distintos.".replace(",", "."),
+            c0, c1, c2, c3 = st.columns(4)
+            c0.metric(
+                "Proveedores distintos",
+                f"{conc['proveedores']:,}".replace(",", "."),
+                help="Cuántos contratistas diferentes recibieron al menos un contrato.",
                 border=True,
+            )
+            c1.metric(
+                f"Los {conc['n']} mayores",
+                f"{conc['pct_proveedores']:.1f}%",
+                delta=f"de {conc['proveedores']:,} proveedores".replace(",", "."),
+                delta_color="off", border=True,
             )
             if conc["pct_contratos"] is not None:
                 c2.metric(
