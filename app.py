@@ -564,10 +564,22 @@ if e1.button("Extraer datos", type="primary", icon=":material/download:"):
         st.session_state.resultado = None
 
 # ---------------------------- Extracciones previas --------------------------
+# Si se acaba de guardar un archivo, el aviso se muestra aquí: el guardado
+# ocurre más abajo en la página y para entonces esta lista ya se dibujó, así
+# que se recarga y el mensaje viaja en session_state.
+recien_guardado = st.session_state.pop("recien_guardado", None)
+if recien_guardado:
+    st.success(f"Guardado en `data/processed` como `{recien_guardado}`.",
+               icon=":material/save:")
+
 anteriores = sorted(DIR_PROCESADO.glob("*.csv"), key=lambda f: f.stat().st_mtime, reverse=True)
 if anteriores:
-    with st.expander(f"Extracciones anteriores ({len(anteriores)})"):
-        st.caption(f"Archivos guardados en `data/processed`.")
+    with st.expander(f"Extracciones anteriores ({len(anteriores)})",
+                     expanded=bool(recien_guardado)):
+        cab1, cab2 = st.columns([4, 1], vertical_alignment="bottom")
+        cab1.caption("Archivos guardados en `data/processed`.")
+        if cab2.button("Actualizar", icon=":material/refresh:", key="hist_refresh"):
+            st.rerun()
         tabla_hist = pd.DataFrame([
             {
                 "archivo": f.name,
@@ -659,7 +671,8 @@ else:
                 destino = DIR_PROCESADO / f"{nombre_archivo}_{marca}.csv"
                 vista.to_csv(destino, index=False, encoding="utf-8-sig")
                 logger.info("Guardado desde la interfaz en %s", destino)
-                st.success(f"Guardado como `{destino.name}`.")
+                st.session_state.recien_guardado = destino.name
+                st.rerun()
             except Exception as exc:
                 logger.exception("No se pudo guardar el CSV")
                 st.error(f"No se pudo guardar: {exc}")
