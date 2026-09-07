@@ -132,10 +132,10 @@ def columnas_de(tabla: str) -> pd.DataFrame:
     return listar_columnas(tabla)
 
 
-# Segundos que se le conceden a la consulta de sugerencias. Es corto a
-# propósito: si una columna no responde rápido, no vale la pena bloquear el
-# formulario por ella.
-ESPERA_SUGERENCIAS = 12
+# Segundos que se le conceden a la consulta de sugerencias. Acotado a
+# propósito: si una columna no responde en ese tiempo, no vale la pena bloquear
+# el formulario por ella. El botón de reintento usa la espera completa.
+ESPERA_SUGERENCIAS = 30
 
 
 @st.cache_data(show_spinner="Consultando los valores ...")
