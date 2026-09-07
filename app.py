@@ -38,6 +38,7 @@ from src.pipeline import (
     guardar_config,
     guardar_consulta,
     leer_log,
+    ruta_log,
 )
 from src.procesamiento import columnas_comparables, procesar
 
@@ -904,9 +905,30 @@ with st.expander("Guardar esta configuración"):
         st.success(f"Guardada como «{nombre.strip()}».")
         st.rerun()
 
-with st.expander("Registro de la última corrida"):
-    st.caption("Las últimas líneas de `logs/secop2.log`.")
-    st.code(leer_log(60), language="log")
+with st.expander("Registro de ejecución"):
+    st.caption(
+        "Todo lo que hace la app y el pipeline queda en `logs/secop2.log`: qué "
+        "consulta se lanzó, cuántas filas llegaron, qué columnas se "
+        "convirtieron y la traza de cualquier error."
+    )
+
+    r1, r2, r3 = st.columns([1, 1, 1], vertical_alignment="bottom")
+    nivel = r1.selectbox("Mostrar", ["Todo", "WARNING", "ERROR", "INFO"])
+    cuantas = r2.number_input("Líneas", min_value=20, max_value=2000, value=100, step=50)
+    if r3.button("Actualizar", icon=":material/refresh:"):
+        st.rerun()
+
+    contenido = leer_log(int(cuantas), None if nivel == "Todo" else nivel)
+    st.code(contenido, language="log")
+
+    archivo = ruta_log()
+    if archivo.exists():
+        c1, c2 = st.columns([1, 3], vertical_alignment="center")
+        c1.download_button(
+            "Descargar registro", icon=":material/download:",
+            data=archivo.read_bytes(), file_name=archivo.name, mime="text/plain",
+        )
+        c2.caption(f"`{archivo}` · {archivo.stat().st_size / 1024:.0f} KB")
 
     if token:
         st.info(

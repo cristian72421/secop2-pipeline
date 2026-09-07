@@ -175,12 +175,32 @@ def borrar_consulta(nombre: str, ruta: str | Path = RUTA_CONSULTAS) -> None:
         logger.info("Consulta '%s' borrada", nombre)
 
 
-def leer_log(lineas: int = 60, ruta: str | Path | None = None) -> str:
-    """Últimas líneas del registro, para revisarlo sin salir de la interfaz."""
+def leer_log(
+    lineas: int = 60,
+    nivel: str | None = None,
+    ruta: str | Path | None = None,
+) -> str:
+    """
+    Últimas líneas del registro, para revisarlo sin salir de la interfaz.
+
+    Con `nivel` se filtra antes de recortar, de modo que pedir solo los avisos
+    devuelva los últimos avisos y no los que quepan en las últimas N líneas.
+    """
     ruta = Path(ruta or (DIR_LOGS / "secop2.log"))
     if not ruta.exists():
         return "Todavía no hay registro de ninguna corrida."
-    return "\n".join(ruta.read_text(encoding="utf-8", errors="replace").splitlines()[-lineas:])
+
+    todas = ruta.read_text(encoding="utf-8", errors="replace").splitlines()
+    if nivel:
+        todas = [l for l in todas if f"| {nivel.upper()}" in l.upper()]
+        if not todas:
+            return f"No hay líneas de nivel {nivel.upper()} en el registro."
+    return "\n".join(todas[-lineas:])
+
+
+def ruta_log() -> Path:
+    """Ubicación del archivo de registro."""
+    return DIR_LOGS / "secop2.log"
 
 
 def ejecutar(config: dict) -> Path:
