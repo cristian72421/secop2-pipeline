@@ -30,6 +30,7 @@ from src.extraccion import (
     valores_distintos,
 )
 from src import indicadores as ind
+from src.exportar import libro_excel
 from src.flujo_vigia import construir_base_contratos
 from src.pipeline import (
     borrar_consulta,
@@ -676,14 +677,36 @@ else:
             {"sep": ";", "decimal": ","} if formato == "Excel en español" else {}
         )
 
-        d1, d2 = st.columns(2)
+        metadatos = {
+            "tabla": res["tabla"],
+            "dataset": DATASETS.get(res["tabla"], "—"),
+            "modo": "Contratos + procesos" if res["vigia"] else "Una tabla",
+            "filtros": filtros,
+            "limite": None if sin_tope else limite_total,
+            "filas": len(vista),
+            "columnas": vista.shape[1],
+            "margen_meses": int(margen_meses) if res["vigia"] else None,
+            "consulta": f"SELECT * FROM {DATASETS.get(res['tabla'], '')}"
+                        + (f" WHERE {where}" if where else ""),
+        }
+
+        d1, d2, d3 = st.columns(3)
         nombre_archivo = f"secop2_{'vigia' if res['vigia'] else res['tabla']}"
         d1.download_button(
             "Descargar CSV", icon=":material/download:",
             data=vista.to_csv(index=False, **opciones_csv).encode("utf-8-sig"),
             file_name=f"{nombre_archivo}.csv", mime="text/csv",
         )
-        if d2.button("Guardar en data/processed", icon=":material/save:"):
+        d2.download_button(
+            "Descargar Excel", icon=":material/table:",
+            data=libro_excel(vista, metadatos, texto_a_lista(txt_moneda)),
+            file_name=f"{nombre_archivo}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Dos hojas: los datos y la consulta que los produjo. Los números "
+                 "van como números, sin problemas de separadores.",
+        )
+
+        if d3.button("Guardar en data/processed", icon=":material/save:"):
             try:
                 DIR_PROCESADO.mkdir(parents=True, exist_ok=True)
                 marca = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
