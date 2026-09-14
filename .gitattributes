@@ -1,0 +1,4 @@
+# Normaliza los finales de línea: LF en el repositorio, lo que corresponda al
+# sistema en la copia de trabajo. Sin esto, los CSV de prueba aparecen como
+# modificados en Windows aunque su contenido no haya cambiado.
+* text=auto
