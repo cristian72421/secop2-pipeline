@@ -30,6 +30,7 @@ from src.extraccion import (
     valores_distintos,
 )
 from src import cache_valores as cache
+from src import formato as fmt
 from src import indicadores as ind
 from src.exportar import libro_excel
 from src.flujo_vigia import construir_base_contratos
@@ -103,28 +104,13 @@ def texto_a_lista(texto: str) -> list[str]:
     return [linea.strip() for linea in texto.splitlines() if linea.strip()]
 
 
+# El formato de números vive en src/formato.py para poder probarlo aparte.
+escala_monetaria = fmt.escala_monetaria
+
+
 def formato_pesos(valor) -> str:
-    """Miles con punto, como se escriben los montos en Colombia."""
-    if pd.isna(valor):
-        return ""
-    return f"{valor:,.0f}".replace(",", ".")
-
-
-def escala_monetaria(maximo: float) -> tuple[float, str]:
-    """
-    Divisor y nombre de la unidad, según la magnitud de los datos.
-
-    Los montos de contratación llegan a los miles de millones de pesos, y un eje
-    con doce dígitos es ilegible. Se muestra en la unidad que deje entre uno y
-    cuatro dígitos enteros.
-    """
-    if maximo >= 1e9:
-        return 1e9, "miles de millones"
-    if maximo >= 1e6:
-        return 1e6, "millones"
-    if maximo >= 1e3:
-        return 1e3, "miles"
-    return 1, "pesos"
+    """Monto sin signo, con punto de miles. Vacío si no hay dato."""
+    return "" if pd.isna(valor) else fmt.numero(valor)
 
 
 @st.cache_data(show_spinner="Leyendo las columnas del dataset ...")
@@ -464,8 +450,8 @@ for i, fila in enumerate(st.session_state.filas_filtro):
                          "Consultarlos puede tardar en tablas grandes.")
             elif demasiados:
                 etiqueta = "Ver valores posibles"
-                ayuda = (f"Esta columna tiene {cardinalidad:,} valores distintos: "
-                         "la lista no ayudaría a elegir.".replace(",", "."))
+                ayuda = (f"Esta columna tiene {fmt.numero(cardinalidad)} valores "
+                         "distintos: la lista no ayudaría a elegir.")
             else:
                 etiqueta = "Ver valores posibles"
                 ayuda = "Consulta a la API qué valores tiene esta columna."
@@ -584,12 +570,12 @@ if e2.button("¿Cuántas filas hay?", icon=":material/pin:",
                     cliente.close()
         elif limite_total and total > limite_total:
             st.warning(
-                f"La consulta devuelve **{total:,}** filas y el tope está en "
-                f"{limite_total:,}: vas a traer una parte, no el conjunto completo."
-                .replace(",", ".")
+                f"La consulta devuelve **{fmt.numero(total)}** filas y el tope "
+                f"está en {fmt.numero(limite_total)}: vas a traer una parte, no "
+                "el conjunto completo."
             )
         else:
-            st.success(f"La consulta devuelve **{total:,}** filas.".replace(",", "."))
+            st.success(f"La consulta devuelve **{fmt.numero(total)}** filas.")
     except Exception as exc:
         logger.exception("Falló el conteo")
         st.error(f"No se pudo contar: {exc}")
@@ -708,7 +694,7 @@ else:
     st.subheader("Resultado")
 
     m1, m2, m3 = st.columns(3)
-    m1.metric("Filas", f"{len(df):,}".replace(",", "."))
+    m1.metric("Filas", fmt.numero(len(df)))
     m2.metric("Columnas", df.shape[1])
     fechas = [c for c in texto_a_lista(txt_fechas) if c in df.columns]
     if fechas:
@@ -745,8 +731,8 @@ else:
             config_cols = {}
         st.dataframe(vista.head(200), hide_index=True, column_config=config_cols)
         st.caption(
-            f"Primeras 200 filas de {len(vista):,}".replace(",", ".")
-            + f" · {vista.shape[1]} de {df.shape[1]} columnas."
+            f"Primeras 200 filas de {fmt.numero(len(vista))}"
+            f" · {vista.shape[1]} de {df.shape[1]} columnas."
         )
 
         formato = st.radio(
@@ -914,16 +900,17 @@ else:
         elif GRUPOS[grupo] is not None:
             st.caption(
                 f"Los indicadores siguientes se calculan sobre "
-                f"{len(dfi):,} de {len(df):,} contratos.".replace(",", ".")
+                f"{fmt.numero(len(dfi))} de {fmt.numero(len(df))} contratos."
             )
         st.divider()
 
         cifras = ind.resumen(dfi)
         k = st.columns(5)
-        k[0].metric("Contratos", f"{cifras['contratos']:,}".replace(",", "."))
+        k[0].metric("Contratos", fmt.numero(cifras["contratos"]))
         if cifras["valor_total"] is not None:
             div, uni = escala_monetaria(cifras["valor_total"])
-            k[1].metric(f"Valor ({uni})", f"{cifras['valor_total'] / div:,.1f}".replace(",", "."))
+            k[1].metric(f"Valor ({uni})", fmt.numero(cifras["valor_total"] / div, 1),
+                        help=fmt.pesos(cifras["valor_total"]))
         for celda, clave, etiqueta in (
             (k[2], "pct_directa", "Contratación directa"),
             (k[3], "pct_con_prorroga", "Con prórroga"),
@@ -1124,20 +1111,20 @@ else:
             c0, c1, c2, c3 = st.columns(4)
             c0.metric(
                 "Proveedores distintos",
-                f"{conc['proveedores']:,}".replace(",", "."),
+                fmt.numero(conc["proveedores"]),
                 help="Cuántos contratistas diferentes recibieron al menos un contrato.",
                 border=True,
             )
             c1.metric(
                 f"Los {conc['n']} mayores",
                 f"{conc['pct_proveedores']:.1f}%",
-                delta=f"de {conc['proveedores']:,} proveedores".replace(",", "."),
+                delta=f"de {fmt.numero(conc['proveedores'])} proveedores",
                 delta_color="off", border=True,
             )
             if conc["pct_contratos"] is not None:
                 c2.metric(
                     "Sus contratos",
-                    f"{conc['contratos_top']} de {conc['contratos_total']:,}".replace(",", "."),
+                    f"{conc['contratos_top']} de {fmt.numero(conc['contratos_total'])}",
                     delta=f"{conc['pct_contratos']:.1f}% de los contratos",
                     delta_color="off", border=True,
                 )
@@ -1150,8 +1137,8 @@ else:
 
             st.markdown(
                 f"**{conc['contratos_top']} contratos, de "
-                f"{conc['contratos_total']:,}".replace(",", ".")
-                + f", concentran el {conc['pct_valor']:.0f}% del valor.**"
+                f"{fmt.numero(conc['contratos_total'])}, concentran el "
+                f"{conc['pct_valor']:.0f}% del valor.**"
             )
             curva = ind.curva_concentracion(dfi)
             if not curva.empty:
