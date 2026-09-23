@@ -3,5 +3,5 @@ sodapy>=2.2.0
 PyYAML>=6.0
 streamlit>=1.30
 requests>=2.31
-altair>=5.0
+plotly>=5.20
 openpyxl>=3.1

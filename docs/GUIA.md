@@ -375,6 +375,54 @@ que lo hace en una línea (`separators=",."`).
 
 ---
 
+### Las gráficas (`src/graficas.py`)
+
+Las diez gráficas son de **Plotly**. Antes eran Altair y `st.bar_chart`, y el
+cambio resuelve tres cosas:
+
+1. **Los números salen en español.** `separators=",."` pone coma decimal y punto
+   de miles en ejes, etiquetas y recuadros emergentes. Altair los formatea en el
+   navegador y esa configuración no es accesible desde Streamlit: los ejes decían
+   `1,257.0` donde debían decir `1.257,0`.
+2. **El recuadro emergente se redacta.** Dice "El 0,4% de los proveedores acumula
+   el 83,3% del valor" en vez del nombre crudo de la columna.
+3. **Zoom y descarga a PNG** sin escribir código.
+
+**La paleta está validada, no elegida a ojo.** Los cinco tonos —verde, violeta,
+naranja, azul, magenta— pasan las cinco comprobaciones del validador de
+daltonismo en modo claro y en modo oscuro: banda de luminosidad, saturación
+mínima, separación entre tonos vecinos en protanopía y deuteranopía, separación
+en visión normal y contraste contra el fondo. Dos cosas salieron de ahí:
+
+- El **gris** que ocupaba el quinto puesto no pasaba: se confunde con el magenta
+  (ΔE 2,2 en deuteranopía). Se cambió por violeta, y el gris quedó solo para
+  líneas de referencia.
+- El **violeta va segundo, no quinto**, porque junto al magenta tampoco se
+  distingue. El orden de los tonos es parte de lo validado, no un capricho.
+
+El modo oscuro tiene sus propios tonos, más claros, validados aparte contra el
+fondo oscuro. No es un volteo automático. `modo_oscuro()` en `app.py` pregunta
+en cada recarga qué modo está usando el navegador, porque `config.toml` no fija
+ninguno a propósito.
+
+Detalles que costaron una pasada de revisión, todos visibles al mirar las
+gráficas renderizadas:
+
+- Eje logarítmico con `dtick=1`: sin eso Plotly intercala las marcas menores y
+  el eje queda como `2, 100k, 5, 10k, 5, 1000…`.
+- Meses como categorías: con etiquetas tipo `2025-01`, Plotly las toma por
+  fechas y las rotula en inglés (`Jan 2025`).
+- 12% de aire a la derecha en las barras horizontales, porque la etiqueta con el
+  valor va por fuera de la barra y se salía del área.
+- En la torta, las porciones por debajo del 4% no llevan etiqueta: se encimaban
+  hasta volverse un borrón. El dato sigue en el recuadro emergente.
+
+Las dos gráficas de modalidad comparten el orden de las filas a propósito
+—ambas ordenadas por número de contratos— para poder leer de un vistazo que la
+contratación directa es la primera en cantidad y la segunda en dinero.
+
+---
+
 ## 8bis. El registro de ejecución (logs)
 
 Cada corrida deja constancia en `logs/secop2.log`: qué consulta se lanzó,
