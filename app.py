@@ -29,6 +29,7 @@ from src.extraccion import (
     listar_columnas,
     valores_distintos,
 )
+from src import cache_valores as cache
 from src import indicadores as ind
 from src.exportar import libro_excel
 from src.flujo_vigia import construir_base_contratos
@@ -129,7 +130,14 @@ def escala_monetaria(maximo: float) -> tuple[float, str]:
 
 @st.cache_data(show_spinner="Leyendo las columnas del dataset ...")
 def columnas_de(tabla: str) -> pd.DataFrame:
-    return listar_columnas(tabla)
+    """Columnas de la tabla, primero de la caché en disco y si no del portal."""
+    guardadas = cache.leer_columnas(tabla)
+    if guardadas is not None:
+        return guardadas
+
+    meta = listar_columnas(tabla)
+    cache.guardar_columnas(tabla, meta)
+    return meta
 
 
 # Segundos que se le conceden a la consulta de sugerencias. Acotado a
@@ -138,16 +146,32 @@ def columnas_de(tabla: str) -> pd.DataFrame:
 ESPERA_SUGERENCIAS = 30
 
 
-@st.cache_data(show_spinner="Consultando los valores ...")
-def valores_de(tabla: str, columna: str, token: str) -> list[str]:
-    cliente = crear_cliente(app_token=token or None, timeout=ESPERA_SUGERENCIAS)
-    try:
-        df = valores_distintos(cliente, tabla, columna)
-    finally:
-        cliente.close()
-    if df.empty or "valor" not in df.columns:
-        return []
-    return df["valor"].dropna().astype(str).tolist()
+def valores_de(tabla: str, columna: str, token: str, forzar: bool = False) -> list[str]:
+    """
+    Valores posibles de una columna.
+
+    Se leen de la caché en disco si están; solo se le pregunta al portal la
+    primera vez, cuando caducan, o cuando se pide actualizar a propósito. La
+    caché de Streamlit no sirve aquí porque muere al reiniciar el servidor.
+    """
+    if not forzar:
+        guardados = cache.leer_valores(tabla, columna)
+        if guardados is not None:
+            return guardados
+
+    with st.spinner("Consultando los valores ..."):
+        cliente = crear_cliente(app_token=token or None, timeout=ESPERA_SUGERENCIAS)
+        try:
+            df = valores_distintos(cliente, tabla, columna)
+        finally:
+            cliente.close()
+
+    valores = (
+        [] if df.empty or "valor" not in df.columns
+        else df["valor"].dropna().astype(str).tolist()
+    )
+    cache.guardar_valores(tabla, columna, valores)
+    return valores
 
 
 def selector_de_valor(contenedor, opciones: list[str], actual: str, clave: str, etiqueta_visible: bool):
@@ -202,6 +226,7 @@ cfg = cargar_defaults()
 st.session_state.setdefault("resultado", None)
 st.session_state.setdefault("cols_consultadas", set())
 st.session_state.setdefault("cols_fallidas", set())
+st.session_state.setdefault("cols_refrescar", set())
 st.session_state.setdefault("consulta_cargada", None)
 
 # Los valores iniciales salen de la consulta cargada si hay una; si no, del YAML.
@@ -293,6 +318,22 @@ with st.sidebar:
                  "empieza antes.", disabled=not vigia,
         )
 
+        st.divider()
+        guardado = cache.resumen()
+        if guardado.empty:
+            st.caption("Todavía no hay valores de filtros guardados.")
+        else:
+            st.caption(
+                f"{len(guardado)} columnas con sus valores guardados en este "
+                "equipo. Por eso los filtros cargan al instante."
+            )
+        if st.button("Borrar lo guardado", disabled=guardado.empty,
+                     help="Vacía la caché de columnas y valores. La próxima "
+                          "consulta los volverá a pedir al portal."):
+            cache.limpiar()
+            columnas_de.clear()
+            st.rerun()
+
 
 # --------------------------------- Filtros ----------------------------------
 st.subheader("1. Qué filas traer")
@@ -334,25 +375,36 @@ for i, fila in enumerate(st.session_state.filas_filtro):
 
     valor = ""
     if columna != SIN_FILTRO:
+        # Dos fuentes distintas: 'ejemplos' son unos pocos valores frecuentes
+        # que el portal incluye en los metadatos; 'guardados' es la lista
+        # completa que ya se consultó alguna vez y quedó en disco.
         cacheados = ejemplos_por_campo.get(columna, [])
+        guardados = cache.leer_valores(tabla, columna)
         cardinalidad = cardinalidad_por_campo.get(columna)
         pedido = columna in st.session_state.cols_consultadas
+        refrescar = columna in st.session_state.cols_refrescar
 
         # Se intenta siempre, salvo que el portal declare que la columna tiene
         # demasiados valores distintos. El intento tiene un tiempo corto, así
         # que una columna lenta cuesta unos segundos y no bloquea el formulario.
         demasiados = cardinalidad is not None and cardinalidad > MAX_VALORES
         fallida = columna in st.session_state.cols_fallidas
-        consultar = (pedido or (autocargar and not cacheados and not demasiados)) and not fallida
+        automatico = autocargar and guardados is None and not cacheados and not demasiados
+        consultar = (pedido or refrescar or automatico) and not fallida
 
-        opciones_val = cacheados
+        opciones_val = guardados if guardados is not None else cacheados
         # `fallida` refleja intentos anteriores; este marca el fallo de ahora,
         # para poder ofrecer el reintento en la misma pantalla y no en la
         # siguiente recarga.
         fallo_ahora = False
         if consultar:
             try:
-                opciones_val = valores_de(tabla, columna, token)
+                opciones_val = valores_de(tabla, columna, token, forzar=refrescar)
+                st.session_state.cols_refrescar.discard(columna)
+                # La consulta acaba de dejarlos en disco: sin esto, el pie de
+                # la fila mostraría el conteo anterior hasta la siguiente
+                # recarga.
+                guardados = opciones_val
             except Exception as exc:
                 fallo_ahora = True
                 opciones_val = cacheados
@@ -360,6 +412,7 @@ for i, fila in enumerate(st.session_state.filas_filtro):
                 # agotó el tiempo una vez, lo volverá a agotar.
                 st.session_state.cols_fallidas.add(columna)
                 st.session_state.cols_consultadas.discard(columna)
+                st.session_state.cols_refrescar.discard(columna)
                 agotado = "timed out" in str(exc).lower()
                 if not agotado:
                     c2.caption(f"No se pudieron consultar los valores: {exc}")
@@ -398,6 +451,12 @@ for i, fila in enumerate(st.session_state.filas_filtro):
             if c2.button(etiqueta, key=f"f_load_{i}", help=ayuda):
                 st.session_state.cols_fallidas.discard(columna)
                 st.session_state.cols_consultadas.add(columna)
+                st.rerun()
+        elif guardados is not None:
+            c2.caption(f"{len(guardados)} valores guardados en este equipo.")
+            if c2.button("Actualizar valores", key=f"f_upd_{i}",
+                         help="Vuelve a pedirle la lista al portal y la guarda."):
+                st.session_state.cols_refrescar.add(columna)
                 st.rerun()
 
     st.session_state.filas_filtro[i] = {"columna": columna, "valor": valor}

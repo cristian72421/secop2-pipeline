@@ -371,6 +371,35 @@ Un ejemplo de lo que queda guardado:
 
 ---
 
+## 8ter. `src/cache_valores.py` — la caché de los filtros
+
+Al elegir una columna, la interfaz le pregunta al portal qué valores tiene. Esa
+consulta es un *group by* sobre toda la tabla y tarda entre unos segundos y
+medio minuto. Antes se repetía en cada arranque, porque la caché de Streamlit
+vive en memoria y muere con el proceso.
+
+Ahora el resultado se guarda en `data/cache/`:
+
+- `valores_<tabla>.json` — los valores de cada columna que ya se consultó.
+- `columnas_<tabla>.json` — los metadatos de las columnas de la tabla.
+
+A partir de la segunda vez la lista sale del disco, así que aparece al instante
+y funciona incluso sin conexión. Medido contra el portal: 1,9 s la consulta,
+0,004 s la lectura del archivo.
+
+Lo guardado **caduca a los 30 días** (`DIAS_VIGENCIA`), porque los nombres de
+entidades y ciudades cambian poco pero no son fijos. Hay dos formas de forzar
+una actualización antes de eso: el botón *Actualizar valores* debajo de cada
+filtro, que renueva esa columna, y *Borrar lo guardado* en las opciones
+avanzadas de la barra lateral, que vacía toda la caché.
+
+La carpeta está en `.gitignore`: es contenido derivado, distinto en cada equipo.
+
+Un archivo de caché dañado no tumba la aplicación — se ignora, queda una
+advertencia en el log, y la siguiente consulta lo reescribe.
+
+---
+
 ## 9. La configuración
 
 | Clave | Para qué |
