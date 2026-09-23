@@ -221,6 +221,28 @@ def selector_de_valor(contenedor, opciones: list[str], actuales: list[str],
         return elegidos + [v.strip() for v in escritos.split(";") if v.strip()]
 
 
+# Controles que se repiten una vez por fila de filtro. La clave de cada uno
+# lleva el número de fila al final: "f_col_0", "f_val_1", ...
+PREFIJOS_FILA = ("f_col_", "f_val_", "f_load_", "f_upd_", "f_del_")
+
+
+def olvidar_controles(desde: int, hasta: int) -> None:
+    """
+    Borra de la sesión los controles de las filas `desde` a `hasta` - 1.
+
+    Streamlit guarda lo que eligió el usuario bajo la clave del control, y esa
+    clave lleva el número de fila. Al eliminar una fila, las de abajo se corren
+    una posición y heredarían el valor guardado de la posición anterior: la
+    pantalla mostraría los datos de la fila borrada y parecería que se eliminó
+    la última en vez de la que se pulsó. Borrar las claves obliga a Streamlit a
+    reconstruirlas desde `filas_filtro`.
+    """
+    for j in range(desde, hasta):
+        for prefijo in PREFIJOS_FILA:
+            st.session_state.pop(f"{prefijo}{j}", None)
+            st.session_state.pop(f"{prefijo}{j}_txt", None)   # el respaldo de texto
+
+
 def aplicar_consulta(consulta: dict) -> None:
     """
     Carga una consulta guardada en el formulario.
@@ -484,7 +506,9 @@ for i, fila in enumerate(st.session_state.filas_filtro):
         quitar = i
 
 if quitar is not None and len(st.session_state.filas_filtro) > 1:
+    total_antes = len(st.session_state.filas_filtro)
     st.session_state.filas_filtro.pop(quitar)
+    olvidar_controles(quitar, total_antes)
     st.rerun()
 
 if st.button("Agregar filtro", icon=":material/add:"):
