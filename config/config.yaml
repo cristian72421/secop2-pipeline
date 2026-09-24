@@ -13,7 +13,8 @@ tamano_pagina: 50000
 # Tope de filas a descargar. null = todo lo que devuelva el filtro.
 limite_total: 5000
 
-# Filtros de extracción. Bloque vacío ({}) = sin filtrar.
+# Filtros de extracción. Bloque vacío ({}) = sin filtrar. Una lista trae
+# varias: nombre_entidad: ['UNP', 'INVIAS'].
 filtros:
   ciudad: "Bogotá"
   nombre_entidad: "UNP"

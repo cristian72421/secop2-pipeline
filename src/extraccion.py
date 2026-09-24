@@ -113,11 +113,17 @@ def valores_distintos(
     return df
 
 
+def _entrecomillar(valor) -> str:
+    """Valor como literal de SoQL, con las comillas simples dobladas."""
+    return "'" + str(valor).replace("'", "''") + "'"
+
+
 def _construir_where(filtros: dict | None) -> str | None:
     """
     Traduce un diccionario de filtros a una cláusula WHERE de SoQL.
 
     Igualdad simple:  {"columna": "valor"}
+    Varios valores:   {"columna": ["valor A", "valor B"]}
     Rango de fechas:  {"columna": {"desde": "2024-01-01", "hasta": "2024-12-31"}}
     """
     if not filtros:
@@ -129,13 +135,23 @@ def _construir_where(filtros: dict | None) -> str | None:
             desde = valor.get("desde")
             hasta = valor.get("hasta")
             if desde:
-                condiciones.append(f"{columna} >= '{desde}'")
+                condiciones.append(f"{columna} >= {_entrecomillar(desde)}")
             if hasta:
-                condiciones.append(f"{columna} <= '{hasta}'")
+                condiciones.append(f"{columna} <= {_entrecomillar(hasta)}")
+        elif isinstance(valor, (list, tuple, set)):
+            # Varios valores para la misma columna: se traduce a IN, que es lo
+            # que permite traer más de una entidad en una sola consulta. Con un
+            # solo valor sale igualdad, para no ensuciar el WHERE.
+            valores = [v for v in valor if str(v).strip()]
+            if not valores:
+                continue
+            if len(valores) == 1:
+                condiciones.append(f"{columna} = {_entrecomillar(valores[0])}")
+            else:
+                lista = ", ".join(_entrecomillar(v) for v in valores)
+                condiciones.append(f"{columna} IN ({lista})")
         else:  # igualdad simple (texto)
-            # comillas simples dobladas para no romper la consulta
-            valor_escapado = str(valor).replace("'", "''")
-            condiciones.append(f"{columna} = '{valor_escapado}'")
+            condiciones.append(f"{columna} = {_entrecomillar(valor)}")
 
     return " AND ".join(condiciones) if condiciones else None
 
@@ -171,6 +187,8 @@ def diagnosticar_filtros(cliente: Socrata, tabla: str, filtros: dict) -> pd.Data
     for columna, valor in filtros.items():
         if isinstance(valor, dict):
             descripcion = f"{columna}: {valor.get('desde', '...')} a {valor.get('hasta', '...')}"
+        elif isinstance(valor, (list, tuple, set)) and len(valor) > 1:
+            descripcion = f"{columna} en {len(valor)} valores"
         else:
             descripcion = f"{columna} = {valor}"
         filas.append({

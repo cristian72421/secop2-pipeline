@@ -82,7 +82,8 @@ COMENTARIOS_CONFIG = {
     "tabla": "contratos | procesos | proveedores | adiciones | integrado",
     "tamano_pagina": "Filas por petición a la API",
     "limite_total": "Tope de filas a descargar. null = todo lo que devuelva el filtro.",
-    "filtros": "Filtros de extracción. Bloque vacío ({}) = sin filtrar.",
+    "filtros": ("Filtros de extracción. Bloque vacío ({}) = sin filtrar. "
+                "Una lista trae varias: nombre_entidad: ['UNP', 'INVIAS']."),
     "margen_meses_procesos": (
         "Solo para flujo_vigia: cuántos meses antes se buscan los procesos"
     ),

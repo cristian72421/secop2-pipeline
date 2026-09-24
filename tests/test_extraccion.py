@@ -26,3 +26,16 @@ def test_la_consulta_al_portal_se_arma_bien():
         "proveedor = 'FUNDACION O''BRIEN'"
 
     assert _construir_where({}) is None
+
+
+def test_varias_entidades_se_traducen_a_in():
+    """
+    El Entregable 2 pide poder definir "entidad/es": varias en una consulta.
+
+    Con un solo valor sigue saliendo una igualdad, para no ensuciar el WHERE.
+    """
+    assert _construir_where({"nombre_entidad": ["UNP", "INVIAS"]}) == \
+        "nombre_entidad IN ('UNP', 'INVIAS')"
+    assert _construir_where({"nombre_entidad": ["UNP"]}) == "nombre_entidad = 'UNP'"
+    assert _construir_where({"proveedor": ["O'BRIEN", "OTRA"]}) == \
+        "proveedor IN ('O''BRIEN', 'OTRA')"

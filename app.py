@@ -63,7 +63,6 @@ COLOR_ALERTA = "#C4661F"
 PALETA = ["#12805F", "#C4661F", "#3E7CC0", "#AE5183", "#7C7C7C"]
 
 SIN_FILTRO = "— sin filtro —"
-OTRO_VALOR = "— otro valor —"
 
 st.set_page_config(page_title="Pipeline SECOP 2", page_icon="📄", layout="wide")
 
@@ -174,33 +173,54 @@ def valores_de(tabla: str, columna: str, token: str, forzar: bool = False) -> li
     return valores
 
 
-def selector_de_valor(contenedor, opciones: list[str], actual: str, clave: str, etiqueta_visible: bool):
+def como_lista(valor) -> list[str]:
     """
-    Desplegable de valores que además acepta texto escrito a mano.
+    Un filtro puede venir como texto (una entidad) o como lista (varias).
 
-    Las versiones recientes de Streamlit lo hacen en un solo control; en las
-    anteriores se cae a un desplegable con una opción para escribir.
+    La configuración vieja guarda `nombre_entidad: "UNP"` y la nueva
+    `nombre_entidad: ["UNP", "INVIAS"]`; las dos tienen que poder cargarse.
     """
-    etiqueta = "Valor" if etiqueta_visible else " "
+    if valor is None or valor == "":
+        return []
+    if isinstance(valor, (list, tuple, set)):
+        return [str(v).strip() for v in valor if str(v).strip()]
+    return [str(valor).strip()]
+
+
+def selector_de_valor(contenedor, opciones: list[str], actuales: list[str],
+                      clave: str, etiqueta_visible: bool) -> list[str]:
+    """
+    Selector de uno o varios valores para una columna.
+
+    Es múltiple a propósito: el entregable pide poder definir "entidad/es", así
+    que hay que poder traer varias en una sola consulta. Con un valor la
+    consulta sale como igualdad y con varios, como IN.
+
+    Las versiones recientes de Streamlit aceptan texto escrito a mano dentro
+    del mismo control; en las anteriores se cae a una casilla aparte, porque
+    hay valores que no salen en la lista de sugerencias.
+    """
+    etiqueta = "Valor(es)" if etiqueta_visible else " "
     visibilidad = "visible" if etiqueta_visible else "collapsed"
+    # Lo escrito a mano tiene que estar entre las opciones o Streamlit lo
+    # descarta al redibujar.
+    lista = opciones + [v for v in actuales if v not in opciones]
     try:
-        return contenedor.selectbox(
-            etiqueta, opciones, key=clave, label_visibility=visibilidad,
-            index=opciones.index(actual) if actual in opciones else None,
-            accept_new_options=True, placeholder="Elige o escribe el valor",
-        ) or ""
+        return contenedor.multiselect(
+            etiqueta, lista, default=actuales, key=clave,
+            label_visibility=visibilidad, accept_new_options=True,
+            placeholder="Elige o escribe uno o varios valores",
+        )
     except TypeError:  # Streamlit anterior a la opción de texto libre
-        lista = [OTRO_VALOR] + opciones
-        elegido = contenedor.selectbox(
-            etiqueta, lista, key=clave, label_visibility=visibilidad,
-            index=lista.index(actual) if actual in lista else 0,
+        elegidos = contenedor.multiselect(
+            etiqueta, lista, default=actuales, key=clave,
+            label_visibility=visibilidad, placeholder="Elige uno o varios valores",
         )
-        if elegido != OTRO_VALOR:
-            return elegido
-        return contenedor.text_input(
-            " ", value=actual, key=f"{clave}_txt", label_visibility="collapsed",
-            placeholder="Escribe el valor tal cual aparece",
+        escritos = contenedor.text_input(
+            " ", key=f"{clave}_txt", label_visibility="collapsed",
+            placeholder="Otros valores, separados por punto y coma",
         )
+        return elegidos + [v.strip() for v in escritos.split(";") if v.strip()]
 
 
 def aplicar_consulta(consulta: dict) -> None:
@@ -215,10 +235,10 @@ def aplicar_consulta(consulta: dict) -> None:
             del st.session_state[clave]
     st.session_state.consulta_cargada = consulta
     st.session_state.filas_filtro = [
-        {"columna": k, "valor": str(v)}
+        {"columna": k, "valor": como_lista(v)}
         for k, v in (consulta.get("filtros") or {}).items()
         if not isinstance(v, dict)
-    ] or [{"columna": "", "valor": ""}]
+    ] or [{"columna": "", "valor": []}]
     st.rerun()
 
 
@@ -357,9 +377,9 @@ MAX_VALORES = 300
 filtros_cfg = base.get("filtros") or {}
 if "filas_filtro" not in st.session_state:
     st.session_state.filas_filtro = [
-        {"columna": k, "valor": str(v)}
+        {"columna": k, "valor": como_lista(v)}
         for k, v in filtros_cfg.items() if not isinstance(v, dict)
-    ] or [{"columna": "", "valor": ""}]
+    ] or [{"columna": "", "valor": []}]
 
 quitar = None
 for i, fila in enumerate(st.session_state.filas_filtro):
@@ -373,7 +393,7 @@ for i, fila in enumerate(st.session_state.filas_filtro):
         label_visibility="visible" if primera else "collapsed",
     )
 
-    valor = ""
+    valores: list[str] = []
     if columna != SIN_FILTRO:
         # Dos fuentes distintas: 'ejemplos' son unos pocos valores frecuentes
         # que el portal incluye en los metadatos; 'guardados' es la lista
@@ -428,7 +448,9 @@ for i, fila in enumerate(st.session_state.filas_filtro):
                         "Escribe el valor a mano, o reintenta abajo."
                     )
 
-        valor = selector_de_valor(c2, opciones_val, fila["valor"], f"f_val_{i}", primera)
+        valores = selector_de_valor(
+            c2, opciones_val, como_lista(fila["valor"]), f"f_val_{i}", primera,
+        )
 
         # El botón aparece si la consulta falló —ahora o antes, y aunque haya
         # ejemplos en caché, porque esos son parciales— o si nunca se intentó.
@@ -459,7 +481,7 @@ for i, fila in enumerate(st.session_state.filas_filtro):
                 st.session_state.cols_refrescar.add(columna)
                 st.rerun()
 
-    st.session_state.filas_filtro[i] = {"columna": columna, "valor": valor}
+    st.session_state.filas_filtro[i] = {"columna": columna, "valor": valores}
     if c3.button("✕", key=f"f_del_{i}", help="Quitar"):
         quitar = i
 
@@ -468,7 +490,7 @@ if quitar is not None and len(st.session_state.filas_filtro) > 1:
     st.rerun()
 
 if st.button("Agregar filtro", icon=":material/add:"):
-    st.session_state.filas_filtro.append({"columna": "", "valor": ""})
+    st.session_state.filas_filtro.append({"columna": "", "valor": []})
     st.rerun()
 
 # Rango de fechas: aparte, porque genera >= y <= en vez de igualdad.
@@ -521,9 +543,11 @@ with st.expander("Columnas a convertir", expanded=False):
 # --------------------------- Consulta y ejecución ---------------------------
 filtros: dict = {}
 for fila in st.session_state.filas_filtro:
-    col, val = fila["columna"], str(fila["valor"]).strip()
-    if col and col != SIN_FILTRO and val:
-        filtros[col] = val
+    col, vals = fila["columna"], como_lista(fila["valor"])
+    if col and col != SIN_FILTRO and vals:
+        # Un solo valor se guarda como texto para que el YAML siga legible y
+        # las configuraciones anteriores no cambien de forma sin motivo.
+        filtros[col] = vals[0] if len(vals) == 1 else vals
 if usar_rango and col_fecha and (desde or hasta):
     filtros[col_fecha] = {k: v for k, v in (("desde", desde), ("hasta", hasta)) if v}
 

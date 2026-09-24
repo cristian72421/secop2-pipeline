@@ -32,6 +32,10 @@ def _describir_filtros(filtros: dict | None) -> list[tuple[str, str]]:
         if isinstance(valor, dict):
             desde, hasta = valor.get("desde", "—"), valor.get("hasta", "—")
             filas.append((f"Filtro · {columna}", f"de {desde} a {hasta}"))
+        elif isinstance(valor, (list, tuple, set)):
+            # Varios valores: se listan separados por coma. str() de una lista
+            # dejaría los corchetes y las comillas en la celda.
+            filas.append((f"Filtro · {columna}", ", ".join(str(v) for v in valor)))
         else:
             filas.append((f"Filtro · {columna}", str(valor)))
     return filas or [("Filtros", "ninguno (se trajo todo lo disponible)")]

@@ -96,19 +96,26 @@ descargan muchas páginas seguidas.
 ### `_construir_where(filtros)`
 
 Traduce un diccionario de filtros a la sintaxis de consulta del portal (SoQL,
-parecida a SQL). Soporta dos formas:
+parecida a SQL). Soporta tres formas:
 
 ```python
-{"ciudad": "Bogotá"}                                  ->  ciudad = 'Bogotá'
-{"fecha_de_firma": {"desde": "2025-01-01"}}           ->  fecha_de_firma >= '2025-01-01'
+{"ciudad": "Bogotá"}                          ->  ciudad = 'Bogotá'
+{"nombre_entidad": ["UNP", "INVIAS"]}         ->  nombre_entidad IN ('UNP', 'INVIAS')
+{"fecha_de_firma": {"desde": "2025-01-01"}}   ->  fecha_de_firma >= '2025-01-01'
 ```
+
+La forma de lista es la que permite traer **varias entidades en una sola
+consulta**, que es lo que pide el Entregable 2 al hablar de "entidad/es". Una
+lista de un solo elemento sale como igualdad, para no ensuciar el `WHERE`.
 
 Varias claves se combinan con `AND`. El guion bajo inicial del nombre indica,
 por convención de Python, que es una función interna del módulo.
 
-**Limitación actual:** solo igualdad exacta sobre texto y rangos de fecha. No
-soporta búsqueda parcial (`LIKE`), listas de valores (`IN`) ni comparaciones
-numéricas.
+Comprobado contra el portal: filtrar dos entidades juntas devuelve exactamente
+la suma de lo que devuelve cada una por separado.
+
+**Limitación actual:** solo igualdad, listas de valores y rangos de fecha. No
+soporta búsqueda parcial (`LIKE`) ni comparaciones numéricas.
 
 ### `extraer_dataset(...)`
 
