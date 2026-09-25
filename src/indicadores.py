@@ -47,6 +47,10 @@ TRAMOS_FIRMA = [
 ]
 
 
+GRUPO_SERVICIOS = "Prestación de servicios profesionales"
+GRUPO_RESTO = "Resto de la contratación"
+
+
 def _col(df: pd.DataFrame, clave: str, columnas: dict | None = None) -> str | None:
     """Nombre real de una columna, o None si la tabla no la trae."""
     nombre = (columnas or COLUMNAS).get(clave)
@@ -365,3 +369,78 @@ def justificacion_directa(df: pd.DataFrame, columnas: dict | None = None) -> pd.
         100 * resumen_causal["contratos"] / len(directa)
     ).round(2)
     return resumen_causal
+
+
+def es_prestacion_servicios(df: pd.DataFrame, columnas: dict | None = None) -> pd.Series:
+    """
+    Marca los contratos de prestación de servicios profesionales.
+
+    Son la nómina de contratistas de la entidad: muchísimos contratos de valor
+    pequeño que, por número, dominan cualquier conteo y tapan al resto.
+
+    Se identifican por la **causal invocada**, no por el tipo de contrato. La
+    diferencia no es menor: en la UNP 3.207 contratos son de tipo "Prestación
+    de servicios" y se llevan el 91% del dinero, pero solo 3.170 lo son por la
+    causal de servicios profesionales, y esos valen el 10%. Los otros 37 son
+    esquemas de protección tercerizados, que es justo lo que hay que poder
+    mirar aparte.
+
+    Si la tabla no trae la causal —el modo de una sola tabla no la une— se cae
+    a contratación directa con tipo de contrato de prestación de servicios, que
+    en los datos reales coincide en el 99,8% de los casos.
+    """
+    col_just = _col(df, "justificacion", columnas)
+    if col_just is not None:
+        return (
+            df[col_just].fillna("").astype(str)
+            .str.normalize("NFKD").str.encode("ascii", "ignore").str.decode("ascii")
+            .str.lower().str.contains("servicios profesionales")
+        )
+
+    col_mod, col_tipo = _col(df, "modalidad", columnas), _col(df, "tipo", columnas)
+    if col_mod is None or col_tipo is None:
+        return pd.Series(False, index=df.index)
+
+    directa = df[col_mod].astype(str).str.lower().str.contains("directa")
+    servicios = df[col_tipo].astype(str).str.strip().str.lower() == "prestación de servicios"
+    return directa & servicios
+
+
+def grupo_prestacion(df: pd.DataFrame, columnas: dict | None = None) -> pd.Series:
+    """Etiqueta de grupo para separar la nómina de contratistas del resto."""
+    return pd.Series(
+        np.where(es_prestacion_servicios(df, columnas), GRUPO_SERVICIOS, GRUPO_RESTO),
+        index=df.index,
+    )
+
+
+def comparar_prestacion(df: pd.DataFrame, columnas: dict | None = None) -> pd.DataFrame:
+    """
+    Los dos grupos lado a lado: cuántos contratos y cuánto dinero tiene cada uno.
+
+    Es la tabla que justifica separarlos. Mirar los indicadores sobre el total
+    describe sobre todo a los contratistas individuales; mirarlos sin ellos
+    describe a dónde va el presupuesto.
+    """
+    if df.empty:
+        return pd.DataFrame()
+
+    valores = _num(df, _col(df, "valor", columnas))
+    tabla = pd.DataFrame({
+        "grupo": grupo_prestacion(df, columnas),
+        "valor": valores if not valores.empty else 0.0,
+    })
+    resumen_grupo = tabla.groupby("grupo").agg(
+        contratos=("valor", "size"),
+        valor=("valor", "sum"),
+        valor_mediano=("valor", "median"),
+    )
+    resumen_grupo["% de contratos"] = (100 * resumen_grupo["contratos"] / len(df)).round(1)
+    total = resumen_grupo["valor"].sum()
+    resumen_grupo["% del valor"] = (
+        (100 * resumen_grupo["valor"] / total).round(1) if total else 0.0
+    )
+    orden = [g for g in (GRUPO_SERVICIOS, GRUPO_RESTO) if g in resumen_grupo.index]
+    return resumen_grupo.loc[orden, [
+        "contratos", "% de contratos", "valor", "% del valor", "valor_mediano",
+    ]]

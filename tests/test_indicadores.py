@@ -80,3 +80,19 @@ def test_ningun_indicador_falla_cuando_la_consulta_no_devuelve_nada(vacio):
                     ind.valores_por_modalidad, ind.dias_firma_a_inicio,
                     ind.justificacion_directa):
         assert funcion(vacio).empty, funcion.__name__
+
+
+def test_la_prestacion_de_servicios_se_separa_por_la_causal_no_por_el_tipo(contratos):
+    """
+    35 contratos son de tipo "prestación de servicios", pero solo 31 lo son por
+    la causal. Los otros 4 son contratos caros con otra causal, justo los que
+    hay que poder mirar aparte: separar por el tipo los escondería.
+    """
+    assert (contratos["tipo_de_contrato"] == "Prestación de servicios").sum() == 35
+    assert ind.es_prestacion_servicios(contratos).sum() == 31
+
+    tabla = ind.comparar_prestacion(contratos)
+    servicios = tabla.loc[ind.GRUPO_SERVICIOS]
+    assert servicios["contratos"] == 31
+    assert servicios["% de contratos"] > 70      # casi todos los contratos
+    assert servicios["% del valor"] < 5          # y una fracción del dinero

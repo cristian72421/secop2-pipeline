@@ -407,6 +407,38 @@ advertencia en el log, y la siguiente consulta lo reescribe.
 
 ---
 
+## 8quater. Separar la prestación de servicios
+
+La entidad tiene dos contrataciones muy distintas metidas en la misma tabla:
+
+| Grupo | Contratos | Valor |
+|---|---|---|
+| Prestación de servicios profesionales | 3.170 (97%) | $128 mil millones (10%) |
+| Resto de la contratación | 103 (3%) | $1.129 mil millones (90%) |
+
+Los primeros son la nómina de contratistas de la entidad. Por número dominan
+cualquier conteo, así que los indicadores calculados sobre el total describen
+sobre todo a los contratistas individuales y no a dónde va el presupuesto.
+
+`es_prestacion_servicios()` los marca **por la causal invocada, no por el tipo
+de contrato**. La diferencia importa: 3.207 contratos son de tipo "prestación
+de servicios" y se llevan el 91% del dinero, pero solo 3.170 lo son por la
+causal de servicios profesionales, y esos valen el 10%. Los otros 37 son
+esquemas de protección tercerizados — exactamente lo que hay que poder mirar
+aparte. Separar por el tipo los escondería.
+
+Cuando la tabla no trae la causal (el modo de una sola tabla no la une), se cae
+a contratación directa con tipo de contrato de prestación de servicios, que en
+los datos reales coincide en el 99,8% de los casos.
+
+En la interfaz, la pestaña de indicadores muestra la comparación de los dos
+grupos y un selector para recalcularlo todo sobre *todos*, *sin* o *solo* la
+prestación de servicios. Quitándola, la contratación directa pasa del 98% al
+41% de los contratos, y la Selección Abreviada de Menor Cuantía queda con
+$866 mil millones de los $1.129 mil millones.
+
+---
+
 ## 9. La configuración
 
 | Clave | Para qué |
