@@ -349,6 +349,32 @@ detener el servidor y volver a lanzarlo.
 
 ---
 
+### Formato de los números (`src/formato.py`)
+
+En Colombia el punto separa los miles y la coma los decimales. La interfaz lo
+resolvía con `f"{x:,.1f}".replace(",", ".")`, que funciona con enteros pero
+rompe en cuanto hay decimales: el valor total de la UNP se mostraba como
+**1.257.0** miles de millones —dos puntos, ningún decimal reconocible— en vez
+de **1.257,0**.
+
+`src/formato.py` lo hace bien y se puede probar aparte:
+
+| Función | Para qué | Ejemplo |
+|---|---|---|
+| `numero(v, decimales)` | cualquier cifra | `1.234.567,8` |
+| `pesos(v)` | montos con signo | `$13.339.049` |
+| `escala_monetaria(max)` | divisor y nombre de la unidad | `(1e9, "miles de millones")` |
+| `monto_corto(v)` | titulares y tarjetas | `1.257,0 miles de millones` |
+
+Sin dato devuelven una raya (`—`), no un cero: un cero se leería como "ninguno".
+
+Los números *dentro* de las gráficas todavía salen con separadores ingleses,
+porque Altair los formatea del lado del navegador y la configuración de
+localización no es accesible desde Streamlit. Se resuelve al migrar a Plotly,
+que lo hace en una línea (`separators=",."`).
+
+---
+
 ## 8bis. El registro de ejecución (logs)
 
 Cada corrida deja constancia en `logs/secop2.log`: qué consulta se lanzó,
