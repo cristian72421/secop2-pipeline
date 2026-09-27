@@ -12,7 +12,6 @@ import logging
 import os
 from pathlib import Path
 
-import altair as alt
 import pandas as pd
 import streamlit as st
 import yaml
@@ -31,6 +30,7 @@ from src.extraccion import (
 )
 from src import cache_valores as cache
 from src import formato as fmt
+from src import graficas as gr
 from src import indicadores as ind
 from src.exportar import libro_excel
 from src.flujo_vigia import construir_base_contratos
@@ -49,19 +49,8 @@ RAIZ = Path(__file__).resolve().parent
 RUTA_CONFIG = RAIZ / "config" / "config.yaml"
 DIR_PROCESADO = RAIZ / "data" / "processed"
 
-# Un solo color para todas las gráficas: cada una muestra una sola serie, así
-# que varios colores no codificarían nada.
-COLOR = "#2E7D32"
-
-# Par para las gráficas que separan lo normal de lo señalado. Validado con el
-# comprobador de paletas: separación suficiente también para daltonismo, en
-# modo claro y oscuro.
-COLOR_NORMAL = "#3E7CC0"
-COLOR_ALERTA = "#C4661F"
-
-# Orden fijo de la paleta categórica: los colores se asignan en este orden y
-# nunca se recicla. Una quinta categoría se agrupa en "Otras".
-PALETA = ["#12805F", "#C4661F", "#3E7CC0", "#AE5183", "#7C7C7C"]
+# Los colores de las gráficas viven en src/graficas.py, junto al validador
+# de la paleta que los justifica.
 
 SIN_FILTRO = "— sin filtro —"
 
@@ -98,6 +87,29 @@ def cargar_defaults() -> dict:
 
 def lista_a_texto(valores) -> str:
     return "\n".join(valores or [])
+
+
+def modo_oscuro() -> bool:
+    """
+    Si la interfaz se está viendo en modo oscuro.
+
+    En `.streamlit/config.toml` no se fija `base` a propósito, para que siga al
+    navegador; por eso el modo hay que preguntarlo en cada recarga y no se
+    puede resolver con una constante.
+    """
+    try:
+        return st.context.theme.type == "dark"
+    except Exception:
+        return False
+
+
+def grafica(contenedor, fig, clave: str | None = None) -> None:
+    """Pinta una figura de Plotly sin la marca de agua ni la barra completa."""
+    contenedor.plotly_chart(
+        fig, width="stretch", key=clave,
+        config={"displaylogo": False, "modeBarButtonsToRemove":
+                ["lasso2d", "select2d", "autoScale2d"]},
+    )
 
 
 def texto_a_lista(texto: str) -> list[str]:
@@ -795,6 +807,7 @@ else:
                 st.error(f"No se pudo guardar: {exc}")
 
     with t2:
+        oscuro = modo_oscuro()
         col_fechas = [c for c in texto_a_lista(txt_fechas) if c in df.columns]
         col_montos = [c for c in texto_a_lista(txt_moneda) if c in df.columns]
 
@@ -806,8 +819,10 @@ else:
             if not serie.empty:
                 por_mes = serie.dt.to_period("M").value_counts().sort_index()
                 por_mes.index = por_mes.index.astype(str)
-                st.bar_chart(por_mes, color=COLOR, height=240,
-                             x_label="Mes", y_label="Contratos")
+                grafica(st, gr.barras(
+                    por_mes.index, por_mes.values, horizontal=False,
+                    unidad="Contratos", oscuro=oscuro, alto=260,
+                ), clave="g_contratos_mes")
 
             if col_montos:
                 st.markdown("**Valor total por mes**")
@@ -819,9 +834,10 @@ else:
 
                 divisor, unidad = escala_monetaria(suma.max())
                 suma = (suma / divisor).round(2)
-                suma.name = f"{unidad} de pesos"
-                st.bar_chart(suma, color=COLOR, height=240,
-                             x_label="Mes", y_label=f"{unidad} de pesos")
+                grafica(st, gr.barras(
+                    suma.index, suma.values, horizontal=False, decimales=2,
+                    unidad=f"{unidad} de pesos", oscuro=oscuro, alto=260,
+                ), clave="g_valor_mes")
                 st.caption(
                     f"Total del periodo: **${formato_pesos(montos.sum())}** · "
                     f"mediana por contrato: ${formato_pesos(montos.median())}"
@@ -839,9 +855,11 @@ else:
             elegida_c = st.selectbox("Columna", candidatas, label_visibility="collapsed",
                                      index=candidatas.index("modalidad_de_contratacion")
                                      if "modalidad_de_contratacion" in candidatas else 0)
-            conteo = df[elegida_c].value_counts().head(10).sort_values()
-            st.bar_chart(conteo, color=COLOR, horizontal=True, height=300,
-                         x_label="Contratos", y_label="")
+            conteo = df[elegida_c].value_counts().head(10)
+            grafica(st, gr.barras(
+                conteo.index, conteo.values, unidad="Contratos",
+                oscuro=oscuro, alto=320,
+            ), clave="g_categoria")
 
         numericas = df.select_dtypes("number")
         if not numericas.empty:
@@ -850,6 +868,7 @@ else:
                 st.dataframe(estadisticas.style.format(formato_pesos))
 
     with t3:
+        oscuro = modo_oscuro()
         st.caption(
             "Indicadores descriptivos siguiendo los red flags de VigIA. "
             "**Ninguno prueba una irregularidad por sí solo**: varios son el "
@@ -930,62 +949,39 @@ else:
                              label_visibility="collapsed", key="forma_modalidad")
 
             if forma == "Barras":
-                def barras(serie: pd.Series, titulo: str, formato: str):
-                    datos = serie.head(8).rename("v").reset_index()
-                    datos.columns = ["modalidad", "v"]
-                    return (
-                        alt.Chart(datos, title=titulo)
-                        .mark_bar(color=COLOR_NORMAL, cornerRadiusEnd=3)
-                        .encode(
-                            x=alt.X("v:Q", title="",
-                                    axis=alt.Axis(format=formato)),
-                            y=alt.Y("modalidad:N", title="", sort="-x",
-                                    axis=alt.Axis(labelLimit=320)),
-                            tooltip=["modalidad", alt.Tooltip("v:Q", format=formato, title=titulo)],
-                        )
-                        .properties(height=300)
-                    )
-
                 div, uni = escala_monetaria(modalidad["valor"].max())
+                mayores = modalidad.head(8)
                 m1, m2 = st.columns(2)
-                m1.altair_chart(barras(modalidad["contratos"], "Contratos", ",.0f"),
-                                use_container_width=True)
-                m2.altair_chart(barras(modalidad["valor"] / div,
-                                       f"Valor ({uni} de pesos)", ",.1f"),
-                                use_container_width=True)
+                grafica(m1, gr.barras(
+                    mayores.index, mayores["contratos"], titulo="Contratos",
+                    unidad="contratos", oscuro=oscuro, alto=320,
+                ), clave="g_mod_contratos")
+                grafica(m2, gr.barras(
+                    mayores.index, mayores["valor"] / div, decimales=1,
+                    titulo=f"Valor ({uni} de pesos)", unidad=uni,
+                    color=gr.colores(oscuro)["alerta"], oscuro=oscuro, alto=320,
+                ), clave="g_mod_valor")
             else:
                 # La torta necesita pocas porciones: se dejan las cuatro
                 # mayores de cada medida y el resto va a "Otras".
-                def torta(serie: pd.Series, titulo: str):
+                def cuatro_y_otras(serie: pd.Series) -> pd.Series:
+                    """Cuatro porciones y el resto junto: más no se distinguen."""
                     ordenada = serie.sort_values(ascending=False)
-                    principales = ordenada.head(4)
                     resto = ordenada.iloc[4:].sum()
+                    principales = ordenada.head(4)
                     if resto:
                         principales = pd.concat([principales, pd.Series({"Otras": resto})])
-                    datos = principales.rename("valor").reset_index()
-                    datos.columns = ["modalidad", "valor"]
-                    datos["pct"] = 100 * datos["valor"] / datos["valor"].sum()
-                    return (
-                        alt.Chart(datos, title=titulo)
-                        .mark_arc(stroke="#00000022", strokeWidth=2)
-                        .encode(
-                            theta=alt.Theta("valor:Q", stack=True),
-                            color=alt.Color("modalidad:N", title="Modalidad",
-                                            sort=datos["modalidad"].tolist(),
-                                            scale=alt.Scale(range=PALETA)),
-                            order=alt.Order("valor:Q", sort="descending"),
-                            tooltip=["modalidad",
-                                     alt.Tooltip("valor:Q", format=",.0f"),
-                                     alt.Tooltip("pct:Q", format=".2f", title="% del total")],
-                        )
-                        .properties(height=300)
-                    )
+                    return principales
 
                 m1, m2 = st.columns(2)
-                m1.altair_chart(torta(modalidad["contratos"], "Contratos"),
-                                use_container_width=True)
-                m2.altair_chart(torta(modalidad["valor"], "Valor"),
-                                use_container_width=True)
+                for celda, columna, titulo, clave in (
+                    (m1, "contratos", "Contratos", "g_torta_contratos"),
+                    (m2, "valor", "Valor", "g_torta_valor"),
+                ):
+                    porciones = cuatro_y_otras(modalidad[columna])
+                    grafica(celda, gr.torta(porciones.index, porciones.values,
+                                            titulo=titulo, oscuro=oscuro, alto=330),
+                            clave=clave)
                 st.caption(
                     "Las cuatro modalidades mayores de cada medida; el resto se "
                     "agrupa en «Otras». Pasa el cursor para ver el porcentaje."
@@ -1023,20 +1019,11 @@ else:
                 "señal, no un error de datos."
             )
             recorte = detalle_firma[detalle_firma["dias"].between(-60, 120)]
-            histograma = (
-                alt.Chart(recorte)
-                .mark_bar()
-                .encode(
-                    x=alt.X("dias:Q", bin=alt.Bin(maxbins=60), title="Días entre firma e inicio"),
-                    y=alt.Y("count():Q", title="Contratos"),
-                    color=alt.Color("estado:N", title="",
-                                    scale=alt.Scale(domain=["En regla", "Firmado tras iniciar"],
-                                                    range=[COLOR_NORMAL, COLOR_ALERTA])),
-                    tooltip=[alt.Tooltip("count():Q", title="Contratos")],
-                )
-                .properties(height=260)
-            )
-            st.altair_chart(histograma, use_container_width=True)
+            grafica(st, gr.histograma_estados(
+                recorte, valor="dias", estado="estado",
+                normal="En regla", alerta="Firmado tras iniciar",
+                titulo_x="Días entre firma e inicio", oscuro=oscuro, alto=300,
+            ), clave="g_firma_inicio")
             if len(recorte) < len(detalle_firma):
                 st.caption(
                     f"Se muestran los que caen entre −60 y 120 días "
@@ -1059,38 +1046,19 @@ else:
                 "millones": (dispersion["valor"] / 1e6).round(2),
                 "modalidad": dispersion["modalidad"],
             })
-            caja = (
-                alt.Chart(en_millones)
-                .mark_boxplot(size=26, outliers={"size": 12, "opacity": 0.5})
-                .encode(
-                    x=alt.X("modalidad:N", title="", sort="-y",
-                            axis=alt.Axis(labelAngle=-25, labelLimit=200)),
-                    y=alt.Y("millones:Q", scale=alt.Scale(type="log"),
-                            title="Valor del contrato (millones de pesos)",
-                            axis=alt.Axis(format=",.0f")),
-                    color=alt.Color("modalidad:N", legend=None,
-                                    scale=alt.Scale(range=PALETA)),
-                )
-                .properties(height=420)
-            )
-            st.altair_chart(caja, use_container_width=True)
+            grafica(st, gr.caja_logaritmica(
+                en_millones, valor="millones", grupo="modalidad",
+                titulo_y="Valor del contrato (millones de pesos)",
+                oscuro=oscuro, alto=420,
+            ), clave="g_caja_modalidad")
 
         mensual = ind.contratos_por_mes_modalidad(dfi)
         if not mensual.empty:
             st.markdown("#### Contratos por mes y modalidad")
-            barras = (
-                alt.Chart(mensual)
-                .mark_bar()
-                .encode(
-                    x=alt.X("mes:N", title=""),
-                    y=alt.Y("contratos:Q", title="Contratos"),
-                    color=alt.Color("modalidad:N", title="Modalidad",
-                                    scale=alt.Scale(range=PALETA)),
-                    tooltip=["mes", "modalidad", "contratos"],
-                )
-                .properties(height=260)
-            )
-            st.altair_chart(barras, use_container_width=True)
+            grafica(st, gr.barras_apiladas(
+                mensual, x="mes", y="contratos", serie="modalidad",
+                titulo_y="Contratos", oscuro=oscuro, alto=300,
+            ), clave="g_mes_modalidad")
 
         ofertas = ind.ofertas_por_modalidad(dfi)
         if not ofertas.empty:
@@ -1147,22 +1115,8 @@ else:
                     "los proveedores ordenados de mayor a menor. La diagonal "
                     "sería el reparto perfectamente equitativo."
                 )
-                linea = (
-                    alt.Chart(curva).mark_line(strokeWidth=2, color=COLOR_ALERTA)
-                    .encode(
-                        x=alt.X("pct_proveedores:Q", title="% de proveedores"),
-                        y=alt.Y("pct_valor:Q", title="% del valor acumulado"),
-                        tooltip=[alt.Tooltip("pct_proveedores:Q", format=".1f", title="% proveedores"),
-                                 alt.Tooltip("pct_valor:Q", format=".1f", title="% valor")],
-                    )
-                )
-                diagonal = (
-                    alt.Chart(pd.DataFrame({"x": [0, 100], "y": [0, 100]}))
-                    .mark_line(strokeDash=[4, 4], color="#7C7C7C", strokeWidth=1)
-                    .encode(x="x:Q", y="y:Q")
-                )
-                st.altair_chart((diagonal + linea).properties(height=260),
-                                use_container_width=True)
+                grafica(st, gr.curva_lorenz(curva, oscuro=oscuro, alto=320),
+                        clave="g_lorenz")
 
             tabla_prov = conc["tabla"].copy()
             div, uni = escala_monetaria(tabla_prov["valor"].max())
@@ -1176,18 +1130,10 @@ else:
                 "Por tramos de orden de magnitud: en escala lineal un contrato "
                 "de miles de millones aplasta a todos los demás."
             )
-            datos_val = valores.reset_index()
-            datos_val.columns = ["tramo", "contratos"]
-            st.altair_chart(
-                alt.Chart(datos_val).mark_bar(color=COLOR_NORMAL, cornerRadiusEnd=3)
-                .encode(
-                    x=alt.X("contratos:Q", title="Contratos"),
-                    y=alt.Y("tramo:N", title="", sort=None,
-                            axis=alt.Axis(labelLimit=320)),
-                    tooltip=["tramo", "contratos"],
-                ).properties(height=300),
-                use_container_width=True,
-            )
+            grafica(st, gr.barras(
+                valores.index, valores["contratos"], unidad="Contratos",
+                oscuro=oscuro, alto=320,
+            ), clave="g_tramos_valor")
 
         calidad = ind.calidad_datos(dfi)
         if not calidad.empty:
