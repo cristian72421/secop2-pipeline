@@ -25,3 +25,13 @@ def test_el_monto_se_muestra_en_su_unidad_natural():
     assert fmt.monto_corto(1_257_043_254_045) == "1.257,0 miles de millones"
     assert fmt.monto_corto(35_726_000) == "35,7 millones"
     assert fmt.numero(None) == "—"
+
+def test_los_porcentajes_tambien_llevan_coma():
+    """
+    Regresión: los montos ya salían con coma, pero los porcentajes se escribían
+    con f-strings sueltas y conservaban el punto decimal del inglés.
+    """
+    assert fmt.porcentaje(83.33) == "83,3%"
+    assert fmt.porcentaje(97.264, 0) == "97%"
+    assert fmt.porcentaje(1234.5) == "1.234,5%"
+    assert fmt.porcentaje(None) == "—"

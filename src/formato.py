@@ -56,6 +56,20 @@ def pesos(valor, decimales: int = 0) -> str:
     return "$" + numero(valor, decimales)
 
 
+def porcentaje(valor, decimales: int = 1) -> str:
+    """
+    El porcentaje con coma decimal: 83.33 -> '83,3%'.
+
+    Recibe el número ya en escala 0 a 100, que es como lo devuelven los
+    indicadores, no una fracción. Existe porque `numero()` resolvió los montos
+    pero los porcentajes se seguían escribiendo con f-strings sueltas, y esas
+    usan el punto decimal del inglés.
+    """
+    if _es_vacio(valor):
+        return VACIO
+    return numero(valor, decimales) + "%"
+
+
 def escala_monetaria(maximo: float) -> tuple[float, str]:
     """
     Divisor y nombre de la unidad, según la magnitud de los datos.

@@ -697,7 +697,7 @@ if anteriores:
             {
                 "archivo": f.name,
                 "guardado": pd.Timestamp(f.stat().st_mtime, unit="s").strftime("%d/%m/%Y %H:%M"),
-                "tamaño": f"{f.stat().st_size / 1e6:.1f} MB",
+                "tamaño": f"{fmt.numero(f.stat().st_size / 1e6, 1)} MB",
             }
             for f in anteriores[:20]
         ])
@@ -912,13 +912,20 @@ else:
                 "de tipo «prestación de servicios» que son esquemas "
                 "tercerizados y pesan casi todo el presupuesto."
             )
+            # Los porcentajes se pasan a texto porque el formato de columna de
+            # Streamlit solo entiende el punto decimal. La tabla tiene dos filas,
+            # así que perder el ordenamiento numérico de esas columnas no cuesta.
             st.dataframe(
-                comparacion, width="stretch",
+                comparacion.assign(**{
+                    c: comparacion[c].map(fmt.porcentaje)
+                    for c in ("% de contratos", "% del valor")
+                }),
+                width="stretch",
                 column_config={
                     "contratos": st.column_config.NumberColumn("Contratos", format="localized"),
-                    "% de contratos": st.column_config.NumberColumn("% contratos", format="%.1f%%"),
+                    "% de contratos": st.column_config.TextColumn("% contratos"),
                     "valor": st.column_config.NumberColumn("Valor", format="localized"),
-                    "% del valor": st.column_config.NumberColumn("% del valor", format="%.1f%%"),
+                    "% del valor": st.column_config.TextColumn("% del valor"),
                     "valor_mediano": st.column_config.NumberColumn("Valor mediano", format="localized"),
                 },
             )
@@ -960,7 +967,7 @@ else:
             (k[4], "pct_firma_tardia", "Firma tras iniciar"),
         ):
             if cifras[clave] is not None:
-                celda.metric(etiqueta, f"{cifras[clave]:.1f}%")
+                celda.metric(etiqueta, fmt.porcentaje(cifras[clave]))
 
         modalidad = ind.por_modalidad(dfi)
         if not modalidad.empty:
@@ -1024,7 +1031,17 @@ else:
             mostrar = causales.copy()
             div_c, uni_c = escala_monetaria(mostrar["valor"].max())
             mostrar["valor"] = (mostrar["valor"] / div_c).round(2)
-            st.dataframe(mostrar.rename(columns={"valor": f"valor ({uni_c})"}))
+            # Solo el porcentaje pasa a texto; el valor sigue siendo número para
+            # que la tabla se pueda ordenar por monto.
+            mostrar["% de los directos"] = mostrar["% de los directos"].map(
+                lambda v: fmt.porcentaje(v, 2))
+            st.dataframe(
+                mostrar.rename(columns={"valor": f"valor ({uni_c})"}),
+                column_config={
+                    "contratos": st.column_config.NumberColumn(format="localized"),
+                    f"valor ({uni_c})": st.column_config.NumberColumn(format="localized"),
+                },
+            )
 
             infrecuentes = causales[causales["contratos"] <= 10]
             if not infrecuentes.empty:
@@ -1109,7 +1126,7 @@ else:
             )
             c1.metric(
                 f"Los {conc['n']} mayores",
-                f"{conc['pct_proveedores']:.1f}%",
+                fmt.porcentaje(conc["pct_proveedores"]),
                 delta=f"de {fmt.numero(conc['proveedores'])} proveedores",
                 delta_color="off", border=True,
             )
@@ -1117,12 +1134,12 @@ else:
                 c2.metric(
                     "Sus contratos",
                     f"{conc['contratos_top']} de {fmt.numero(conc['contratos_total'])}",
-                    delta=f"{conc['pct_contratos']:.1f}% de los contratos",
+                    delta=f"{fmt.porcentaje(conc['pct_contratos'])} de los contratos",
                     delta_color="off", border=True,
                 )
             if conc["pct_valor"] is not None:
                 c3.metric(
-                    "Su parte del dinero", f"{conc['pct_valor']:.1f}%",
+                    "Su parte del dinero", fmt.porcentaje(conc["pct_valor"]),
                     help="Porcentaje del valor total contratado en el periodo.",
                     border=True,
                 )
@@ -1130,7 +1147,7 @@ else:
             st.markdown(
                 f"**{conc['contratos_top']} contratos, de "
                 f"{fmt.numero(conc['contratos_total'])}, concentran el "
-                f"{conc['pct_valor']:.0f}% del valor.**"
+                f"{fmt.porcentaje(conc['pct_valor'], 0)} del valor.**"
             )
             curva = ind.curva_concentracion(dfi)
             if not curva.empty:

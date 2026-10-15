@@ -22,3 +22,6 @@ venv/
 
 # Sistema
 .DS_Store
+
+# Configuración local del editor
+.vscode/
