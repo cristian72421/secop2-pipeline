@@ -871,7 +871,54 @@ else:
             "presentan desagregados."
         )
 
-        cifras = ind.resumen(df)
+        # La nómina de contratistas domina cualquier conteo: son el 97% de los
+        # contratos y el 10% del dinero. Mirar los indicadores sobre el total
+        # describe sobre todo a los contratistas individuales.
+        comparacion = ind.comparar_prestacion(df)
+        if not comparacion.empty:
+            st.markdown("#### Dos contrataciones distintas en la misma tabla")
+            st.caption(
+                "La prestación de servicios profesionales se separa por la "
+                "**causal invocada**, no por el tipo de contrato: hay contratos "
+                "de tipo «prestación de servicios» que son esquemas "
+                "tercerizados y pesan casi todo el presupuesto."
+            )
+            st.dataframe(
+                comparacion, width="stretch",
+                column_config={
+                    "contratos": st.column_config.NumberColumn("Contratos", format="localized"),
+                    "% de contratos": st.column_config.NumberColumn("% contratos", format="%.1f%%"),
+                    "valor": st.column_config.NumberColumn("Valor", format="localized"),
+                    "% del valor": st.column_config.NumberColumn("% del valor", format="%.1f%%"),
+                    "valor_mediano": st.column_config.NumberColumn("Valor mediano", format="localized"),
+                },
+            )
+
+        GRUPOS = {
+            "Todos los contratos": None,
+            "Sin prestación de servicios": False,
+            "Solo prestación de servicios": True,
+        }
+        grupo = st.radio(
+            "Qué contratos miran los indicadores de abajo", list(GRUPOS),
+            horizontal=True, key="grupo_prestacion",
+            captions=["La entidad completa.",
+                      "A dónde va el presupuesto, sin la nómina de contratistas.",
+                      "Solo la nómina de contratistas."],
+        )
+        dfi = df if GRUPOS[grupo] is None else df[
+            ind.es_prestacion_servicios(df) == GRUPOS[grupo]
+        ]
+        if dfi.empty:
+            st.info("Ese grupo no tiene contratos en esta extracción.")
+        elif GRUPOS[grupo] is not None:
+            st.caption(
+                f"Los indicadores siguientes se calculan sobre "
+                f"{len(dfi):,} de {len(df):,} contratos.".replace(",", ".")
+            )
+        st.divider()
+
+        cifras = ind.resumen(dfi)
         k = st.columns(5)
         k[0].metric("Contratos", f"{cifras['contratos']:,}".replace(",", "."))
         if cifras["valor_total"] is not None:
@@ -885,7 +932,7 @@ else:
             if cifras[clave] is not None:
                 celda.metric(etiqueta, f"{cifras[clave]:.1f}%")
 
-        modalidad = ind.por_modalidad(df)
+        modalidad = ind.por_modalidad(dfi)
         if not modalidad.empty:
             st.markdown("#### Modalidad de contratación")
             st.caption(
@@ -957,7 +1004,7 @@ else:
                     "agrupa en «Otras». Pasa el cursor para ver el porcentaje."
                 )
 
-        causales = ind.justificacion_directa(df)
+        causales = ind.justificacion_directa(dfi)
         if not causales.empty:
             st.markdown("#### Causal invocada en la contratación directa")
             st.caption(
@@ -980,7 +1027,7 @@ else:
                                 in infrecuentes["contratos"].items())
                 )
 
-        detalle_firma = ind.dias_firma_a_inicio(df)
+        detalle_firma = ind.dias_firma_a_inicio(dfi)
         if not detalle_firma.empty:
             st.markdown("#### Días entre la firma y el inicio")
             st.caption(
@@ -1009,7 +1056,7 @@ else:
                     f"({len(detalle_firma) - len(recorte)} quedan fuera del recorte)."
                 )
 
-        dispersion = ind.valores_por_modalidad(df)
+        dispersion = ind.valores_por_modalidad(dfi)
         if not dispersion.empty:
             st.markdown("#### Dispersión de valores por modalidad")
             st.caption(
@@ -1041,7 +1088,7 @@ else:
             )
             st.altair_chart(caja, use_container_width=True)
 
-        mensual = ind.contratos_por_mes_modalidad(df)
+        mensual = ind.contratos_por_mes_modalidad(dfi)
         if not mensual.empty:
             st.markdown("#### Contratos por mes y modalidad")
             barras = (
@@ -1058,7 +1105,7 @@ else:
             )
             st.altair_chart(barras, use_container_width=True)
 
-        ofertas = ind.ofertas_por_modalidad(df)
+        ofertas = ind.ofertas_por_modalidad(dfi)
         if not ofertas.empty:
             st.markdown("#### Ofertas recibidas, por modalidad")
             st.caption(
@@ -1068,7 +1115,7 @@ else:
             )
             st.dataframe(ofertas)
 
-        conc = ind.concentracion_proveedores(df)
+        conc = ind.concentracion_proveedores(dfi)
         if conc:
             st.markdown("#### Concentración de proveedores")
             # Cada tarjeta dice sobre qué total está calculado su porcentaje:
@@ -1106,7 +1153,7 @@ else:
                 f"{conc['contratos_total']:,}".replace(",", ".")
                 + f", concentran el {conc['pct_valor']:.0f}% del valor.**"
             )
-            curva = ind.curva_concentracion(df)
+            curva = ind.curva_concentracion(dfi)
             if not curva.empty:
                 st.caption(
                     "Curva de concentración: qué porcentaje del valor acumulan "
@@ -1135,7 +1182,7 @@ else:
             tabla_prov["valor"] = (tabla_prov["valor"] / div).round(2)
             st.dataframe(tabla_prov.rename(columns={"valor": f"valor ({uni})"}))
 
-        valores = ind.distribucion_valores(df)
+        valores = ind.distribucion_valores(dfi)
         if not valores.empty:
             st.markdown("#### Distribución de valores")
             st.caption(
@@ -1155,7 +1202,7 @@ else:
                 use_container_width=True,
             )
 
-        calidad = ind.calidad_datos(df)
+        calidad = ind.calidad_datos(dfi)
         if not calidad.empty:
             st.markdown("#### Revisiones de calidad")
             st.caption(
