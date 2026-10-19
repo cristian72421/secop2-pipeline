@@ -262,6 +262,36 @@ def barras_apiladas(datos: pd.DataFrame, x: str, y: str, serie: str,
     return tema(fig, oscuro, alto, leyenda=True)
 
 
+def lineas(datos: pd.DataFrame, x: str, y: str, serie: str | None = None,
+           titulo_y: str = "", decimales: int = 0, oscuro: bool = False,
+           alto: int = 320) -> go.Figure:
+    """
+    Una línea por serie a lo largo del tiempo.
+
+    El eje x va forzado a categoría: las etiquetas de periodo ("2025Q1") no son
+    fechas y Plotly las rotularía en inglés si las tomara por tales. Los puntos
+    van marcados porque con pocos periodos una línea sola engaña sobre cuántas
+    observaciones hay detrás.
+    """
+    c = colores(oscuro)
+    formato = f",.{decimales}f"
+    fig = go.Figure()
+    nombres = sorted(datos[serie].unique()) if serie else [None]
+    for i, nombre in enumerate(nombres):
+        sub = datos if nombre is None else datos.loc[datos[serie] == nombre]
+        fig.add_trace(go.Scatter(
+            x=sub[x], y=sub[y], mode="lines+markers",
+            name=_recortar([nombre], 34)[0] if nombre is not None else y,
+            line=dict(color=c["paleta"][i % len(c["paleta"])], width=2),
+            marker=dict(size=6),
+            hovertemplate=("%{x}<br>" + (str(nombre) + "<br>" if nombre else "")
+                           + "%{y:" + formato + "}<extra></extra>"),
+        ))
+    fig.update_xaxes(type="category")
+    fig.update_yaxes(title_text=titulo_y, tickformat=",")
+    return tema(fig, oscuro, alto, leyenda=len(nombres) > 1)
+
+
 def curva_lorenz(curva: pd.DataFrame, oscuro: bool = False,
                  alto: int = 320) -> go.Figure:
     """La curva contra la diagonal del reparto perfectamente equitativo."""
