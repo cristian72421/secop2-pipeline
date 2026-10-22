@@ -5,3 +5,7 @@ streamlit>=1.30
 requests>=2.31
 plotly>=5.20
 openpyxl>=3.1
+scikit-learn>=1.4
+# La red neuronal sigue el cuaderno de clasificación del curso (Keras con
+# TensorFlow). TensorFlow 2.21 funciona con Python 3.10 a 3.13, no con 3.14.
+tensorflow>=2.16

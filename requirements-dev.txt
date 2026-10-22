@@ -2,3 +2,5 @@
 #   pip install -r requirements.txt -r requirements-dev.txt
 #   pytest
 pytest>=8.0
+ipykernel>=6.0      # para correr los cuadernos de notebooks/ en VS Code
+matplotlib>=3.7     # gráficas del cuaderno del modelo
