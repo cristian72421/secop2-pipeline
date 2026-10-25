@@ -513,6 +513,164 @@ $866 mil millones de los $1.129 mil millones.
 
 ---
 
+## 8quinquies. `src/tendencias.py` — cambios en el tiempo
+
+El resto de los indicadores describe una foto del periodo cargado. Este módulo
+describe la película: si el comportamiento se mantuvo, cuándo se movió y hacia
+dónde. Nada de lo que hay aquí es una prueba estadística.
+
+### `serie_temporal(df, periodo)`
+
+Una fila por entidad y periodo (`"ME"` mensual, `"QE"` trimestral, `"YE"` anual)
+con las medidas que pueden moverse: contratos, valor, valor mediano, porcentaje
+de contratación directa, porcentaje de prestación de servicios y porcentaje del
+valor en los cinco mayores proveedores.
+
+Se agrupa por **fecha de firma**, no por la de inicio. La de inicio depende de
+trámites posteriores y movería el contrato de trimestre sin que la entidad
+hubiera decidido nada distinto.
+
+Marca cada periodo como `completo` o no. El que está en curso tiene menos días
+que los demás y su caída es del calendario; se dibuja, pero no se analiza.
+
+### `quiebres(serie, medida, ventana, umbral, ciclo)`
+
+Marca los periodos que se apartan de lo que venía siendo normal: compara cada
+uno con la media y la desviación de los anteriores y señala los que superan
+`umbral` desviaciones.
+
+El parámetro `ciclo` es el que hace que esto sirva. Con `ciclo=1` la comparación
+es contra los periodos inmediatamente previos. **En contratación pública eso no
+funciona**: las entidades firman su planta de contratistas en enero, así que
+todos los primeros trimestres disparan. Peor aún, el promedio móvil queda
+inflado por el enero que lleva dentro y un salto genuino en otro trimestre
+**queda tapado** — así se comprobó contra datos reales, y hay una prueba que lo
+fija (`test_la_estacionalidad_tapa_el_cambio_real_si_no_se_tiene_en_cuenta`).
+
+Con `ciclo=4` o `ciclo=12` cada periodo se compara con el **mismo trimestre o
+mes de los años anteriores**. `CICLO` traduce la agrupación elegida al ciclo que
+le corresponde, para que la interfaz no tenga que saberlo.
+
+La tabla trae una columna `base`: cuántas observaciones previas sostienen la
+comparación. Con dos, la desviación es casi cero y el número se dispara; dejarlo
+a la vista es preferible a esconderlo.
+
+### `comparar_corte(df, corte, meses)`
+
+Los mismos indicadores antes y después de una fecha, más la variación relativa.
+`meses` recorta ventanas iguales a cada lado; sin él los dos tramos pueden tener
+duraciones distintas y entonces los conteos no son comparables, aunque los
+porcentajes sí.
+
+`INICIO_DE_GOBIERNO` trae las fechas en que empiezan los periodos presidenciales
+en Colombia (7 de agosto), que es el corte que propone la interfaz. Sirve
+cualquier otra: la entrada en vigencia de una norma, un cambio de director.
+
+La fila de variación queda vacía donde el valor anterior era cero, en vez de
+mostrar un infinito.
+
+## 8sexies. `src/modelos.py` — predecir prórrogas
+
+La tarea de VigIA: anticipar al nivel de contrato si habrá retraso, para
+priorizar la vigilancia. La respuesta es `dias_adicionados > 0`. Se comparan
+tres modelos sobre los mismos datos y la misma división:
+
+| Modelo | Qué es |
+|---|---|
+| Línea base | Decir siempre que no. Es lo que hay que superar. |
+| Regresión logística | El modelo clásico (scikit-learn); sus coeficientes se leen. |
+| Red neuronal | La del cuaderno de clasificación del curso ACTD (Keras + TensorFlow). |
+
+### La red es la del cuaderno `heart` del curso
+
+`actd_redes_clasif_dataset_heart_starter.ipynb` (ACTD, clases 15-16). Se
+conservan sus funciones con el mismo nombre —`dataframe_to_dataset`,
+`encode_numerical_feature`, `encode_categorical_feature`— y la misma
+arquitectura:
+
+- una entrada por variable, separadas en categóricas enteras (`IntegerLookup`),
+  categóricas de texto (`StringLookup`) y numéricas (`Normalization`);
+- todas concatenadas, una capa `Dense(32, activation="relu")` y una salida
+  `Dense(1, activation="sigmoid")`;
+- `optimizer="adam"`, `loss="binary_crossentropy"`, lotes de 32, 50 épocas;
+- validación: el 20% del entrenamiento con `random_state=100`.
+
+Tres diferencias, todas por los datos:
+
+1. **La prueba es temporal**, no un 20% al azar: se entrena con contratos
+   anteriores a una fecha y se evalúa con los posteriores.
+2. **Hay vacíos** en las numéricas (`heart` no tenía). Se llenan con la mediana
+   de entrenamiento.
+3. **El mes de firma va como categórica entera**, como `slope` y `ca` en `heart`.
+
+`notebooks/modelo_prorrogas.ipynb` repite el cuaderno de clase celda por celda
+con estos datos, y termina comparando con la logística.
+
+**Requiere Python 3.13 o anterior**: TensorFlow 2.21 no tiene versión para 3.14.
+Sin TensorFlow la aplicación sigue funcionando y la pestaña entrena solo la
+logística.
+
+### Lo que hace creíble el resultado
+
+**Solo variables que se conocen al firmar.** Medido contra ANT, UNP y ARN:
+
+- `estado_contrato`: el 66% de los «Modificado» tiene prórroga; ninguno de
+  «En ejecución». Cambia de valor justamente porque hubo prórroga.
+- `valor_del_contrato`: en la UNP, con prórroga vale 1,5 veces el precio base
+  del proceso (mediana); sin ella, 1,0. Ya trae sumada la adición. En su lugar
+  se usa `precio_base`, que viene de la tabla de procesos y es anterior a la
+  firma.
+- `fecha_de_fin_del_contrato` **sí** sirve: la diferencia con la duración
+  pactada es la misma con y sin prórroga, así que SECOP no la mueve.
+
+La lista completa, con el motivo de cada una, está en `VARIABLES_PROHIBIDAS`.
+
+**Solo contratos cuyo fin pactado ya pasó.** Uno en ejecución todavía puede
+prorrogarse; contarlo como «sin prórroga» sería afirmar lo que no se sabe.
+
+**Se entrena con el pasado y se evalúa con el futuro.** No se mezclan al azar.
+
+### Las métricas
+
+- **AUC**: si se toma un contrato con prórroga y uno sin ella, la probabilidad
+  de que el modelo ponga más alto al primero. 0,5 es azar.
+- **Acierto en el 10% más riesgoso**: de los contratos que el modelo pondría
+  primero en la fila de revisión, cuántos tuvieron prórroga. Es la que importa
+  para priorizar.
+- **Exactitud**: se muestra para enseñar por qué no sirve. Con 12% de
+  prórrogas, decir siempre que no acierta el 88%.
+
+`importancia()` revuelve cada variable y mide cuánto cae el AUC. Funciona igual
+para los dos modelos y responde en qué se fija cada uno.
+
+### Lo que se encontró (ANT, UNP y ARN; entrena 2022–2024, evalúa 2025–2026)
+
+| | AUC | Acierto en el 10% más riesgoso |
+|---|---|---|
+| Línea base | 0,50 | 17,6% |
+| Regresión logística | 0,92 | 72,3% |
+| Red neuronal (3 semillas) | 0,86 – 0,87 | 50 – 53% |
+
+- **La red no le gana a la logística.** Es estable entre semillas, así que no es
+  cuestión de suerte en la inicialización.
+- **Menos épocas le sirven más a la red**: AUC de 0,895 con 5 épocas, 0,887 con
+  10, 0,872 con 25 y 0,86 con 50. Aun en su mejor caso queda por debajo de la
+  logística. Ojo: la pérdida de validación toca su mínimo hacia la época 26-28,
+  más tarde de lo que conviene para la prueba. La validación sale al azar del
+  mismo periodo que el entrenamiento, así que no ve que los contratos de 2025
+  se comportan distinto.
+- **Casi todo lo explica la duración pactada.** Los contratos pactados para
+  terminar en septiembre se prorrogan el 55% de las veces; los de octubre, el
+  44%; los de diciembre, el 10%. Es el patrón de extender la planta de
+  contratistas hasta fin de año. Es una prórroga administrativa, no el retraso
+  de entrega que mide VigIA.
+- **Sin prestación de servicios quedan 1.944 contratos.** Ahí la logística tiene
+  AUC de 0,72 y la red entre 0,65 y 0,70 según la semilla: casi empatadas, y en
+  el 10% más riesgoso la red acierta lo mismo o algo más (54–61% frente a 58%).
+- **La tasa de prórroga sube con los años**: 2,3% de lo firmado en 2022, 14,7%
+  en 2025. Puede ser un cambio de comportamiento o de registro en SECOP; no se
+  puede distinguir con estos datos.
+
 ## 9. La configuración
 
 | Clave | Para qué |

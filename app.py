@@ -32,6 +32,8 @@ from src import cache_valores as cache
 from src import formato as fmt
 from src import graficas as gr
 from src import indicadores as ind
+from src import tendencias as tnd
+from src import modelos as mdl
 from src.exportar import libro_excel
 from src.flujo_vigia import construir_base_contratos
 from src.pipeline import (
@@ -746,7 +748,9 @@ else:
             + ", ".join(f"`{c}`" for c in faltantes)
         )
 
-    t1, t2, t3 = st.tabs(["Datos", "Resumen", "Indicadores de riesgo"])
+    t1, t2, t3, t4, t5 = st.tabs(
+        ["Datos", "Resumen", "Indicadores de riesgo", "Cambios en el tiempo",
+         "Modelo de prórrogas"])
 
     with t1:
         seleccion = st.multiselect(
@@ -1184,6 +1188,267 @@ else:
                 "No se corrige nada automáticamente."
             )
             st.dataframe(calidad, hide_index=True)
+
+    with t4:
+        oscuro = modo_oscuro()
+        st.caption(
+            "El resto de la aplicación describe una foto del periodo cargado. "
+            "Esta pestaña describe la película: si el comportamiento se "
+            "mantuvo, cuándo se movió y hacia dónde. **Nada de lo que hay aquí "
+            "es una prueba estadística**: señala dónde mirar, no qué concluir."
+        )
+
+        p1, p2 = st.columns([1, 2])
+        nombre_periodo = p1.selectbox("Agrupar por", list(tnd.PERIODOS),
+                                      index=1, key="tnd_periodo")
+        medida = p2.selectbox("Medida", list(tnd.MEDIDAS),
+                              format_func=lambda m: tnd.MEDIDAS[m], key="tnd_medida")
+
+        serie = tnd.serie_temporal(df, tnd.PERIODOS[nombre_periodo])
+        if serie.empty:
+            st.info("La tabla cargada no trae fecha de firma utilizable.")
+        else:
+            entidades = sorted(serie["entidad"].unique())
+            st.caption(
+                f"{fmt.numero(len(serie))} periodos, "
+                f"{fmt.numero(len(entidades))} "
+                f"{'entidad' if len(entidades) == 1 else 'entidades'}."
+            )
+            if not serie["completo"].all():
+                en_curso = ", ".join(serie.loc[~serie["completo"], "periodo"].unique())
+                st.warning(
+                    f"El periodo {en_curso} todavía está en curso: su caída es "
+                    "del calendario, no de la entidad. Se dibuja, pero queda "
+                    "fuera del análisis de quiebres."
+                )
+            es_pct = medida.startswith("pct_")
+            grafica(st, gr.lineas(
+                serie, x="periodo", y=medida, serie="entidad",
+                titulo_y=tnd.MEDIDAS[medida], decimales=1 if es_pct else 0,
+                oscuro=oscuro, alto=340,
+            ), clave="g_tendencia")
+
+            st.markdown("#### Periodos que se salen de lo normal")
+            st.caption(
+                "Cada periodo se compara con el **mismo periodo de los años "
+                "anteriores** de la misma entidad, no con los inmediatamente "
+                "previos: las entidades firman su planta de contratistas en "
+                "enero, y sin eso el detector solo encontraría eneros. Se "
+                "marca lo que se aparta más de dos desviaciones. La columna "
+                "«base» dice cuántos años sostienen la comparación: con dos, "
+                "el número de desviaciones no significa gran cosa."
+            )
+            marcados = tnd.quiebres(
+                serie, medida, ciclo=tnd.CICLO[tnd.PERIODOS[nombre_periodo]])
+            if marcados.empty:
+                st.success(
+                    "Ningún periodo se aparta de la tendencia previa. Con "
+                    "pocos periodos cargados esto es lo esperable."
+                )
+            else:
+                st.dataframe(
+                    marcados.assign(
+                        **{medida: marcados[medida].map(
+                            lambda v: fmt.numero(v, 1 if es_pct else 0)),
+                           "esperado": marcados["esperado"].map(
+                            lambda v: fmt.numero(v, 1)),
+                           "desvios": marcados["desvios"].map(
+                            lambda v: fmt.numero(v, 1))}
+                    ).rename(columns={medida: tnd.MEDIDAS[medida],
+                                      "desvios": "desviaciones",
+                                      "base": "años de base"}),
+                    hide_index=True, width="stretch",
+                )
+
+        st.divider()
+        st.markdown("#### Antes y después de una fecha")
+        st.caption(
+            "Los periodos presidenciales en Colombia empiezan el 7 de agosto. "
+            "Esas fechas vienen propuestas, pero sirve cualquier otra: la "
+            "entrada en vigencia de una norma, un cambio de director."
+        )
+        c1, c2 = st.columns([2, 1])
+        corte = c1.date_input(
+            "Fecha de corte", value=pd.Timestamp(tnd.INICIO_DE_GOBIERNO[1]).date(),
+            key="tnd_corte",
+            help=" · ".join(tnd.INICIO_DE_GOBIERNO),
+        )
+        ventana = c2.number_input(
+            "Meses a cada lado", min_value=0, max_value=60, value=12, step=6,
+            key="tnd_ventana",
+            help="Cero usa todo lo cargado; entonces los dos tramos pueden "
+                 "tener duraciones distintas y los conteos no son comparables.",
+        )
+        comparacion = tnd.comparar_corte(df, corte, meses=int(ventana) or None)
+        if comparacion.empty or len(comparacion) < 2:
+            st.info("No hay contratos a los dos lados de esa fecha.")
+        else:
+            vista = comparacion.copy()
+            for col in vista.columns:
+                decs = 1 if col.startswith("pct_") or col == "valor_mediano" else 0
+                vista[col] = [
+                    fmt.numero(v, decs) if tramo != "Cambio %"
+                    else fmt.porcentaje(v, 1)
+                    for tramo, v in zip(vista.index, vista[col])
+                ]
+            st.dataframe(
+                vista.rename(columns=tnd.MEDIDAS), width="stretch",
+            )
+            st.caption(
+                "La fila «Cambio %» es la variación relativa del tramo "
+                "posterior frente al anterior. Queda vacía donde el valor "
+                "anterior era cero."
+            )
+
+
+    with t5:
+        oscuro = modo_oscuro()
+        st.caption(
+            "¿Este contrato va a tener prórroga? Es la tarea de los modelos de "
+            "VigIA: anticipar retrasos para priorizar la vigilancia. Se "
+            "comparan una regresión logística y la red neuronal del cuaderno "
+            "de clasificación del curso (32 neuronas ReLU, salida sigmoide, "
+            "Adam) contra la línea base de decir siempre que no. Solo entran "
+            "variables que se conocen al firmar y contratos cuyo fin pactado ya "
+            "pasó."
+        )
+        with st.expander("Variables que se dejan fuera y por qué"):
+            st.dataframe(
+                pd.DataFrame(
+                    {"motivo": list(mdl.VARIABLES_PROHIBIDAS.values())},
+                    index=pd.Index(list(mdl.VARIABLES_PROHIBIDAS), name="columna"),
+                ),
+                width="stretch",
+            )
+
+        tabla_m = mdl.preparar(df)
+        if tabla_m.empty or tabla_m["prorroga"].nunique() < 2:
+            st.info(
+                "Hacen falta `dias_adicionados`, `fecha_de_firma` y contratos "
+                "ya terminados con y sin prórroga. La base de contratos unida "
+                "con procesos es la que trae todo, incluido el precio base."
+            )
+        else:
+            m1, m2 = st.columns([1, 2])
+            sugerida = tabla_m["fecha_de_firma"].quantile(0.6).normalize()
+            division = m1.date_input(
+                "Entrenar con lo firmado antes de", value=sugerida.date(),
+                key="mdl_division",
+                help="Lo firmado desde esa fecha queda para evaluar. Por "
+                     "defecto, el 60% más antiguo entrena.",
+            )
+            GRUPOS_M = {"Todos los contratos": None,
+                        "Sin prestación de servicios": False,
+                        "Solo prestación de servicios": True}
+            grupo_m = m2.radio("Contratos", list(GRUPOS_M), horizontal=True,
+                               key="mdl_grupo")
+            if GRUPOS_M[grupo_m] is not None:
+                es_serv = ind.es_prestacion_servicios(df).reindex(tabla_m.index)
+                tabla_m = tabla_m.loc[es_serv == GRUPOS_M[grupo_m]]
+
+            epocas = st.number_input(
+                "Épocas de la red", min_value=5, max_value=200, value=mdl.EPOCAS,
+                step=5, key="mdl_epocas",
+                help="50, como en el cuaderno de clase. Con unos 30.000 "
+                     "contratos tarda un par de minutos.",
+            )
+            if st.button("Entrenar y evaluar", icon=":material/model_training:",
+                         key="mdl_entrenar"):
+                try:
+                    import tensorflow  # noqa: F401
+                    con_red = True
+                except ImportError:
+                    con_red = False
+                    st.warning(
+                        "TensorFlow no está instalado en este entorno, así que "
+                        "solo se entrena la logística. Necesita Python 3.13 o "
+                        "anterior: ver `docs/GUIA.md`."
+                    )
+                with st.spinner("Entrenando..."):
+                    resultado, modelos = mdl.comparar(
+                        tabla_m, division, epocas=int(epocas), con_red=con_red)
+                importancias = {}
+                if not resultado.empty:
+                    # Se calculan una vez: con la red, revolver cada variable
+                    # y volver a predecir tarda, y no cambia entre recargas.
+                    X_ev, y_ev = resultado.attrs["X_eval"], resultado.attrs["y_eval"]
+                    if len(X_ev) > 5000:
+                        X_ev = X_ev.sample(5000, random_state=0)
+                        y_ev = y_ev.loc[X_ev.index]
+                    with st.spinner("Midiendo en qué se fija cada modelo..."):
+                        importancias = {n: mdl.importancia(mo, X_ev, y_ev, repeticiones=2)
+                                        for n, mo in modelos.items()}
+                st.session_state["mdl_resultado"] = (resultado, modelos, grupo_m, importancias)
+
+            guardado = st.session_state.get("mdl_resultado")
+            if guardado and len(guardado) < 4:
+                guardado = None   # resultado de una versión anterior de la pestaña
+            if guardado and guardado[2] != grupo_m:
+                st.caption("Los resultados de abajo son de otro grupo: vuelve a entrenar.")
+            if guardado:
+                resultado, modelos, _, importancias = guardado
+                if resultado.empty:
+                    st.warning("No hay contratos de los dos lados de la fecha, "
+                               "o el entrenamiento no tiene los dos casos.")
+                else:
+                    a = resultado.attrs
+                    st.caption(
+                        f"Entrenamiento: {fmt.numero(a['entrenamiento'])} contratos, "
+                        f"{fmt.porcentaje(a['tasa_entrenamiento'])} con prórroga. "
+                        f"Evaluación: {fmt.numero(a['evaluacion'])} contratos, "
+                        f"{fmt.porcentaje(a['tasa_evaluacion'])} con prórroga."
+                    )
+                    if a["evaluacion"] < 1000:
+                        st.warning(
+                            "Menos de mil contratos para evaluar: con tan pocos "
+                            "la red neuronal es inestable y cambia mucho de una "
+                            "semilla a otra. Mira sobre todo la logística."
+                        )
+                    vista = pd.DataFrame({
+                        "AUC": resultado["auc"].map(lambda v: fmt.numero(v, 2)),
+                        "Acierto en el 10% más riesgoso":
+                            resultado["precision_top"].map(fmt.porcentaje),
+                        "Veces mejor que al azar":
+                            resultado["veces_la_tasa"].map(lambda v: fmt.numero(v, 1) + "×"),
+                        "Exactitud": resultado["exactitud"].map(fmt.porcentaje),
+                    }, index=resultado.index)
+                    st.dataframe(vista, width="stretch")
+                    st.caption(
+                        "**AUC**: si se toma un contrato con prórroga y uno sin "
+                        "ella, la probabilidad de que el modelo ponga más alto "
+                        "al primero; 0,5 es azar. **Acierto en el 10% más "
+                        "riesgoso**: de los contratos que el modelo pondría "
+                        "primero en la fila de revisión, cuántos de verdad "
+                        "tuvieron prórroga. **Exactitud**: se muestra para ver "
+                        "por qué no sirve; la línea base saca una alta sin "
+                        "detectar una sola prórroga."
+                    )
+
+                    if "Red neuronal" in modelos:
+                        st.markdown("#### Pérdida de la red por época")
+                        st.caption(
+                            "Como en clase: si la pérdida de validación sube "
+                            "mientras la de entrenamiento sigue bajando, la red "
+                            "está memorizando."
+                        )
+                        h = modelos["Red neuronal"].historial().melt(
+                            id_vars="época", var_name="conjunto", value_name="pérdida")
+                        grafica(st, gr.lineas(
+                            h.assign(época=h["época"].astype(str)), x="época",
+                            y="pérdida", serie="conjunto", titulo_y="Pérdida",
+                            decimales=3, oscuro=oscuro, alto=300,
+                        ), clave="g_perdida")
+
+                    st.markdown("#### ¿En qué se fija el modelo?")
+                    elegido = st.selectbox("Modelo", list(importancias), key="mdl_elegido")
+                    imp = importancias[elegido]
+                    grafica(st, gr.barras(
+                        [mdl.NOMBRES.get(c, c) for c in imp.index], imp.values,
+                        unidad="puntos de AUC", decimales=1,
+                        titulo="Cuánto empeora el AUC si se revuelve la variable",
+                        oscuro=oscuro, alto=max(260, 28 * len(imp)),
+                    ), clave="g_importancia")
+
 
 # --------------------------- Guardar la selección ---------------------------
 st.divider()
