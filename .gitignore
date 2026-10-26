@@ -25,3 +25,6 @@ venv/
 
 # Configuración local del editor
 .vscode/
+
+# Diagrama que genera keras.utils.plot_model al correr los cuadernos
+notebooks/model.png

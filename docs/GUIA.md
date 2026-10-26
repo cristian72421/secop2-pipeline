@@ -603,8 +603,31 @@ Tres diferencias, todas por los datos:
    de entrenamiento.
 3. **El mes de firma va como categórica entera**, como `slope` y `ca` en `heart`.
 
-`notebooks/modelo_prorrogas.ipynb` repite el cuaderno de clase celda por celda
-con estos datos, y termina comparando con la logística.
+`notebooks/modelo_prorrogas.ipynb` usa solo lo que está en los cuadernos de
+clase. Sigue el cuaderno `heart` y, después del entrenamiento, el de regresión
+(auto-mpg): `dropna`, `%%time`, `history`, la gráfica de pérdida y `test_res`.
+De sus 54 celdas de código, 47 son idénticas a una celda de clase. Las otras
+siete son la ruta del archivo, las tres listas de variables, `history =` en el
+`fit`, la etiqueta del eje de la gráfica y `evaluate` sobre `test_ds`.
+
+El cuaderno lee `data/processed/prorrogas.csv`, que cumple el papel de
+`heart.csv`: una fila por contrato, las variables y `target`. Ese archivo se
+arma fuera del cuaderno con `preparar`, que es la que quita las variables con
+fuga y los contratos en ejecución:
+
+```python
+import pandas as pd
+from src import modelos as mdl
+
+base = pd.read_csv("data/processed/base_prorrogas_ANT_UNP_ARN.csv", low_memory=False)
+tabla = mdl.preparar(base).rename(columns={"prorroga": "target"})
+columnas = list(mdl.CATEGORICAS_ENTERAS + mdl.CATEGORICAS + mdl.NUMERICAS)
+tabla[[c for c in columnas if c in tabla] + ["target"]].to_csv(
+    "data/processed/prorrogas.csv", index=False)
+```
+
+En el cuaderno ejecutado (prueba = 20% al azar, como en clase) la red queda con
+pérdida de 0,187, accuracy de 0,927 y recall de 0,578 en prueba.
 
 **Requiere Python 3.13 o anterior**: TensorFlow 2.21 no tiene versión para 3.14.
 Sin TensorFlow la aplicación sigue funcionando y la pestaña entrena solo la

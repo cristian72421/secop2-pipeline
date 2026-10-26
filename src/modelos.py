@@ -130,13 +130,14 @@ def preparar(df: pd.DataFrame, fecha_corte=None) -> pd.DataFrame:
     tabla = pd.DataFrame(index=df.index)
     for col in CATEGORICAS:
         if col in df.columns:
-            tabla[col] = df[col].astype("string").fillna("Sin dato")
+            # Texto plano (object), que es lo que tf.data convierte a string.
+            tabla[col] = df[col].fillna("Sin dato").astype(str)
     if "codigo_de_categoria_principal" in df.columns:
         # "V1.80111701" -> "80": el segmento agrupa en decenas de familias lo
         # que el código completo reparte en miles.
         tabla["segmento_unspsc"] = (
             df["codigo_de_categoria_principal"].astype("string")
-            .str.extract(r"(\d{2})", expand=False).fillna("Sin dato")
+            .str.extract(r"(\d{2})", expand=False).fillna("Sin dato").astype(str)
         )
 
     if "precio_base" in df.columns:
@@ -149,7 +150,7 @@ def preparar(df: pd.DataFrame, fecha_corte=None) -> pd.DataFrame:
     if "respuestas_al_procedimiento" in df.columns:
         tabla["respuestas_al_procedimiento"] = pd.to_numeric(
             df["respuestas_al_procedimiento"], errors="coerce")
-    tabla["mes_de_firma"] = firma.dt.month.astype("Int64")
+    tabla["mes_de_firma"] = firma.dt.month
 
     tabla["fecha_de_firma"] = firma
     tabla["prorroga"] = (pd.to_numeric(df[OBJETIVO], errors="coerce") > 0).astype(int)
@@ -157,6 +158,8 @@ def preparar(df: pd.DataFrame, fecha_corte=None) -> pd.DataFrame:
     corte = pd.Timestamp(fecha_corte) if fecha_corte else pd.Timestamp.today().normalize()
     terminado = fin <= corte if fin is not None else pd.Series(True, index=df.index)
     tabla = tabla.loc[terminado.fillna(False) & firma.notna()]
+    # Sin fechas vacías el mes ya es entero; IntegerLookup lo necesita así.
+    tabla["mes_de_firma"] = tabla["mes_de_firma"].astype("int64")
 
     logger.info("Tabla para modelar: %d contratos terminados, %.1f%% con prórroga",
                 len(tabla), 100 * tabla["prorroga"].mean() if len(tabla) else 0)
