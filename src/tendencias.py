@@ -122,6 +122,35 @@ MEDIDAS = {
 }
 
 
+def corte_sugerido(df: pd.DataFrame, meses: int = 12,
+                   columnas: dict | None = None) -> pd.Timestamp | None:
+    """
+    El inicio de gobierno que mejor se puede comparar con los datos cargados.
+
+    Entre los que caen dentro de los datos, el que deja más contratos en el
+    lado más flojo de la ventana. Si ninguno cae dentro, la fecha del medio.
+    Proponer siempre 2022 dejaba la comparación vacía con datos de un solo año.
+    """
+    col_firma = _col(df, "firma", columnas)
+    if col_firma is None or df.empty:
+        return None
+    fechas = pd.to_datetime(df[col_firma], errors="coerce").dropna()
+    if fechas.empty:
+        return None
+    ventana = pd.DateOffset(months=meses)
+
+    def lado_flojo(corte):
+        antes = ((fechas >= corte - ventana) & (fechas < corte)).sum()
+        despues = ((fechas >= corte) & (fechas < corte + ventana)).sum()
+        return min(antes, despues)
+
+    dentro = [pd.Timestamp(f) for f in INICIO_DE_GOBIERNO
+              if fechas.min() < pd.Timestamp(f) <= fechas.max()]
+    if dentro:
+        return max(dentro, key=lado_flojo)
+    return fechas.min() + (fechas.max() - fechas.min()) / 2
+
+
 def comparar_corte(df: pd.DataFrame, corte, meses: int | None = None,
                    columnas: dict | None = None) -> pd.DataFrame:
     """
@@ -163,6 +192,10 @@ def comparar_corte(df: pd.DataFrame, corte, meses: int | None = None,
                                    if not serie.empty else np.nan,
         })
 
+    if not filas:
+        # Ningún contrato cae en la ventana: la fecha de corte está lejos de
+        # los datos cargados.
+        return pd.DataFrame()
     tabla = pd.DataFrame(filas).set_index("tramo")
     if len(tabla) == 2:
         # La variación relativa solo tiene sentido si había algo antes.

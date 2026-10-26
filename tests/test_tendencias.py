@@ -129,3 +129,18 @@ def test_el_periodo_en_curso_no_se_analiza(contratos):
     serie = t.serie_temporal(contratos, "QE")
     assert "completo" in serie.columns
     assert serie["completo"].all()   # el fixture es de 2025, ya cerrado
+
+
+def test_un_corte_lejos_de_los_datos_no_revienta_la_pestana(contratos):
+    """
+    Error reportado al usar la app: con datos de 2025, el corte de 2022 y doce
+    meses a cada lado no dejaban ningún contrato, y la tabla vacía fallaba al
+    buscar la columna «tramo». Además, la fecha sugerida debe caer dentro de
+    los datos.
+    """
+    assert t.comparar_corte(contratos, "2022-08-07", meses=12).empty
+
+    sugerido = t.corte_sugerido(contratos)
+    firmas = contratos["fecha_de_firma"]
+    assert firmas.min() < sugerido < firmas.max()
+    assert len(t.comparar_corte(contratos, sugerido, meses=12)) == 3

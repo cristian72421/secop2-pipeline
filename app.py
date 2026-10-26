@@ -1268,8 +1268,9 @@ else:
             "entrada en vigencia de una norma, un cambio de director."
         )
         c1, c2 = st.columns([2, 1])
+        sugerido = tnd.corte_sugerido(df) or pd.Timestamp(tnd.INICIO_DE_GOBIERNO[1])
         corte = c1.date_input(
-            "Fecha de corte", value=pd.Timestamp(tnd.INICIO_DE_GOBIERNO[1]).date(),
+            "Fecha de corte", value=sugerido.date(),
             key="tnd_corte",
             help=" · ".join(tnd.INICIO_DE_GOBIERNO),
         )

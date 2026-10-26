@@ -7,5 +7,6 @@ plotly>=5.20
 openpyxl>=3.1
 scikit-learn>=1.4
 # La red neuronal sigue el cuaderno de clasificación del curso (Keras con
-# TensorFlow). TensorFlow 2.21 funciona con Python 3.10 a 3.13, no con 3.14.
-tensorflow>=2.16
+# TensorFlow). TensorFlow funciona con Python 3.10 a 3.13, no con 3.14: en 3.14
+# pip lo salta y el resto se instala igual: la app funciona, pero sin la red.
+tensorflow>=2.16; python_version < "3.14"
