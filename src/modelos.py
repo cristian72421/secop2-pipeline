@@ -1,29 +1,23 @@
 """
-Modelos para predecir si un contrato va a tener prórroga.
+Red neuronal para predecir si un contrato va a tener prórroga.
 
-Es la tarea de VigIA (Salazar, Pérez y Gallego, 2024): anticipar retrasos al
-nivel de contrato para priorizar la vigilancia. Aquí se comparan tres cosas con
-los mismos datos y la misma división:
+Sigue los cuadernos del curso Analítica Computacional para la Toma de
+Decisiones (ACTD 2026-20):
 
-1. **Línea base**: decir siempre que no habrá prórroga. Es lo que hay que
-   superar; si un modelo no lo hace, no aporta.
-2. **Regresión logística**: el modelo clásico, cuyos coeficientes se leen.
-3. **Red neuronal**: la misma del cuaderno de clasificación del curso
-   (ACTD, clases 15-16, datos `heart`): una entrada por variable, `Normalization`
-   para las numéricas, `IntegerLookup`/`StringLookup` para las categóricas, una
-   capa densa de 32 neuronas con ReLU y una salida sigmoide. Adam, entropía
-   cruzada binaria, lotes de 32 y 50 épocas. Las funciones
-   `dataframe_to_dataset`, `encode_numerical_feature` y
-   `encode_categorical_feature` son las de ese cuaderno.
+- `actd_redes_clasif_dataset_heart_starter.ipynb` (clases 15-16): las
+  funciones `dataframe_to_dataset`, `encode_numerical_feature` y
+  `encode_categorical_feature`; una entrada por variable; una capa densa de 32
+  neuronas con activación relu y una salida de 1 neurona con activación
+  sigmoide; `adam`, `binary_crossentropy`, métricas `accuracy` y `recall`,
+  lotes de 32 y 50 épocas; partición 80/20 con `random_state=100` y validación
+  del 20% del entrenamiento.
+- `actd_redes_reg_starter.ipynb` (clases 11-12): `dropna` para los NAs,
+  `history` y `test_res` con `evaluate`.
+- `actd_redes_clasif_init_iris_mnist_starter.ipynb`: `tf.random.set_seed(42)`
+  y `clear_session()` antes de crear el modelo.
 
-Dos decisiones sostienen que el resultado sea creíble:
-
-- **Solo variables que se conocen al firmar.** Varias columnas de SECOP 2 se
-  actualizan después: medidas contra los datos, dejarlas dentro haría que el
-  modelo "adivinara" con información del futuro (ver `VARIABLES_PROHIBIDAS`).
-- **Se entrena con contratos viejos y se evalúa con nuevos**, no mezclados al
-  azar. Es como se usaría de verdad, y si el modelo empeora con el tiempo eso
-  también dice que el comportamiento cambió.
+Lo único propio del proyecto es `preparar`, que arma la tabla a partir de
+SECOP 2 (el equivalente a `heart.csv`).
 
 Monitoría de investigación - Beca Avanza, Universidad de los Andes.
 """
@@ -35,12 +29,6 @@ import os
 
 import numpy as np
 import pandas as pd
-from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +64,7 @@ CATEGORICAS = (
     "el_contrato_puede_ser_prorrogado",
     "segmento_unspsc",             # se deriva del código de categoría
 )
-# Categóricas que vienen como número. El mes no es una cantidad: enero y
-# diciembre no están "lejos" en el sentido que importa, así que cada mes lleva
-# su propia columna, como `slope` y `ca` en el cuaderno heart.
+# Categóricas que vienen como número, como `sex`, `cp` o `ca` en el cuaderno heart.
 CATEGORICAS_ENTERAS = ("mes_de_firma",)
 NUMERICAS = (
     "log_precio_base",             # el valor estimado antes de firmar
@@ -86,28 +72,6 @@ NUMERICAS = (
     "dias_firma_a_inicio",
     "respuestas_al_procedimiento",
 )
-
-MODELOS = ("Línea base", "Regresión logística", "Red neuronal")
-
-# Cómo se llaman las variables en las gráficas, para no enseñar nombres de columna.
-NOMBRES = {
-    "modalidad_de_contratacion": "Modalidad",
-    "tipo_de_contrato": "Tipo de contrato",
-    "justificacion_modalidad_de": "Causal invocada",
-    "nombre_entidad": "Entidad",
-    "tipodocproveedor": "Persona natural o jurídica",
-    "es_pyme": "Es pyme",
-    "destino_gasto": "Funcionamiento o inversión",
-    "origen_de_los_recursos": "Origen de los recursos",
-    "el_contrato_puede_ser_prorrogado": "Cláusula de prórroga",
-    "segmento_unspsc": "Segmento del bien o servicio",
-    "log_precio_base": "Precio base",
-    "duracion_planeada": "Duración pactada",
-    "dias_firma_a_inicio": "Días de la firma al inicio",
-    "respuestas_al_procedimiento": "Ofertas recibidas",
-    "mes_de_firma": "Mes de firma",
-}
-
 
 def preparar(df: pd.DataFrame, fecha_corte=None) -> pd.DataFrame:
     """
@@ -179,44 +143,15 @@ def variables(tabla: pd.DataFrame) -> tuple[list[str], list[str], list[str]]:
     return presentes(CATEGORICAS_ENTERAS), presentes(CATEGORICAS), presentes(NUMERICAS)
 
 
-def dividir_en_el_tiempo(tabla: pd.DataFrame, fecha_division) -> tuple[pd.Series, pd.Series]:
-    """Entrena con lo firmado antes de la fecha; evalúa con lo firmado después."""
-    division = pd.Timestamp(fecha_division)
-    return tabla["fecha_de_firma"] < division, tabla["fecha_de_firma"] >= division
-
-
-def _preprocesador(cat: list[str], num: list[str]) -> ColumnTransformer:
-    return ColumnTransformer([
-        # Las categorías raras se agrupan: con pocas filas no hay qué aprender.
-        ("cat", OneHotEncoder(handle_unknown="infrequent_if_exist",
-                              min_frequency=20, sparse_output=False), cat),
-        ("num", Pipeline([("imputar", SimpleImputer(strategy="median")),
-                          ("escalar", StandardScaler())]), num),
-    ])
-
-
-def logistica(cat_int: list[str], cat_str: list[str], num: list[str]) -> Pipeline:
-    """La regresión logística, con las mismas variables que la red."""
-    return Pipeline([
-        ("preparar", _preprocesador(cat_int + cat_str, num)),
-        ("modelo", LogisticRegression(max_iter=2000, class_weight="balanced")),
-    ])
-
-
-# ----------------------------------------------------------------------------
-# La red neuronal, como en el cuaderno de clasificación del curso
-# ----------------------------------------------------------------------------
-
-NEURONAS = 32
-TAMANO_LOTE = 32
 EPOCAS = 50
+batch_size = 32
 
 
 def _keras():
     """
-    TensorFlow se importa solo cuando se usa la red: tarda varios segundos y
-    el resto de la aplicación no lo necesita. El backend tiene que ser
-    TensorFlow para que el modelo acepte texto como entrada, igual que en clase.
+    TensorFlow se importa solo al entrenar: tarda varios segundos y el resto
+    de la aplicación no lo necesita. Keras debe usar TensorFlow como backend
+    para que el modelo acepte strings como entradas, como en el cuaderno.
     """
     os.environ.setdefault("KERAS_BACKEND", "tensorflow")
     os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
@@ -225,229 +160,138 @@ def _keras():
     return tf, keras
 
 
-def dataframe_to_dataset(dataframe: pd.DataFrame, barajar: bool = True,
-                         semilla: int = 100):
-    """
-    Convierte de dataframe (pandas) a dataset (tensorflow), separando
-    características y etiquetas. Solo el de entrenamiento se baraja; validación
-    y prueba quedan en orden para que las predicciones coincidan con las
-    etiquetas.
-    """
+def dataframe_to_dataset(dataframe):
+    """Convierte de dataframe (pandas) a dataset (tensorflow), separando características y etiquetas."""
     tf, _ = _keras()
     dataframe = dataframe.copy()
-    labels = dataframe.pop("prorroga")
+    labels = dataframe.pop("target")
     ds = tf.data.Dataset.from_tensor_slices((dict(dataframe), labels))
-    if barajar:
-        ds = ds.shuffle(buffer_size=len(dataframe), seed=semilla)
+    ds = ds.shuffle(buffer_size=len(dataframe))
     return ds
 
 
 def encode_numerical_feature(feature, name, dataset):
-    """Variable numérica: resta la media y divide por la desviación estándar."""
+    """Función para codificar variables numéricas (Keras docs)."""
     tf, keras = _keras()
     # Crea capa de normalización para este feature
     normalizer = keras.layers.Normalization()
+
     # Prepara el dataset para considerar únicamente la feature de interés (name)
-    feature_ds = dataset.map(lambda x, y: x[name])
-    feature_ds = feature_ds.map(lambda x: tf.expand_dims(x, -1))
+    feature_ds = dataset.map(lambda x, y: x[name]) # selecciona variable
+    feature_ds = feature_ds.map(lambda x: tf.expand_dims(x, -1)) # deja el tensor de una dimensión
+
     # Aprende las estadísticas de los datos (media, varianza)
     normalizer.adapt(feature_ds)
+
     # Aplica la normalización a la variable
-    return normalizer(feature)
+    encoded_feature = normalizer(feature)
+    return encoded_feature
 
 
 def encode_categorical_feature(feature, name, dataset, is_string):
-    """Variable categórica: una columna 0/1 por categoría (dummies)."""
+    """Función para codificar variables categóricas (Keras docs)."""
     tf, keras = _keras()
     lookup_class = keras.layers.StringLookup if is_string else keras.layers.IntegerLookup
     # Crea una capa Lookup para retornar variables 0/1 (dummies)
+    # lookup: busca el valor correspondiente de la variable categórica
     lookup = lookup_class(output_mode="binary")
+
     # Prepara el dataset para considerar únicamente la feature de interés (name)
-    feature_ds = dataset.map(lambda x, y: x[name])
-    feature_ds = feature_ds.map(lambda x: tf.expand_dims(x, -1))
-    # Aprende el conjunto de posibles valores que toma la variable categórica
+    feature_ds = dataset.map(lambda x, y: x[name]) # selecciona variable
+    feature_ds = feature_ds.map(lambda x: tf.expand_dims(x, -1)) # deja el tensor de una dimensión
+
+    # Aprende el conjunto de posibles valores que toma la variable categórica y asigna enteros
     lookup.adapt(feature_ds)
-    # Aplica la conversión de categorías a dummies
-    return lookup(feature)
+
+    # Aplica la conversión de categorías a enteros
+    encoded_feature = lookup(feature)
+    return encoded_feature
 
 
-class RedNeuronal:
+def entrenar_red(tabla: pd.DataFrame, epocas: int = EPOCAS) -> dict:
     """
-    La red del cuaderno heart, con `fit` y `predict_proba` para usarla igual
-    que la logística.
+    Los pasos del cuaderno heart, en el mismo orden, sobre la tabla de `preparar`.
 
-    Arquitectura: una entrada por variable, cada una codificada según su tipo,
-    todas concatenadas, una capa densa de 32 neuronas con ReLU y una neurona de
-    salida sigmoide (la probabilidad de prórroga). Adam, entropía cruzada
-    binaria, lotes de 32 y 50 épocas.
-
-    La validación sale como en clase: el 20% del entrenamiento al azar con
-    `random_state=100`. Lo único que cambia frente al cuaderno es la prueba,
-    que aquí son los contratos posteriores y no un 20% al azar.
+    Devuelve el modelo, el historial de entrenamiento, `test_res` (pérdida,
+    accuracy y recall en prueba) y el tamaño de cada conjunto.
     """
+    tf, keras = _keras()
 
-    def __init__(self, cat_int: list[str], cat_str: list[str], num: list[str],
-                 epocas: int = EPOCAS, semilla: int = 0, verbose: int = 0):
-        self.cat_int, self.cat_str, self.num = list(cat_int), list(cat_str), list(num)
-        self.feats = self.cat_int + self.cat_str + self.num
-        self.epocas, self.semilla, self.verbose = epocas, semilla, verbose
+    # Definimos listas para las variables categóricas enteras, categóricas string y numéricas
+    cat_int_feats, cat_str_feats, num_feats = variables(tabla)
+    feats_ordered = cat_int_feats+cat_str_feats+num_feats
 
-    def _formato(self, X: pd.DataFrame) -> pd.DataFrame:
-        """Cada columna con el tipo que espera su entrada."""
-        X = X[self.feats].copy()
-        for c in self.cat_int:
-            X[c] = X[c].fillna(0).astype("int64")
-        for c in self.cat_str:
-            X[c] = X[c].astype(str)
-        for c in self.num:
-            # El cuaderno no tenía vacíos; aquí sí. Se llenan con la mediana
-            # de entrenamiento, para no usar nada de la prueba.
-            X[c] = X[c].astype("float64").fillna(self.medianas_[c]).astype("float32")
-        return X
+    # Reordenamos el dataframe de acuerdo con el tipo de variable
+    df = tabla.rename(columns={"prorroga": "target"})
+    df = df[feats_ordered+["target"]]
+    df = df.dropna()
 
-    def fit(self, X: pd.DataFrame, y: pd.Series) -> "RedNeuronal":
-        tf, keras = _keras()
-        self.medianas_ = X[self.num].median()
-        datos = self._formato(X).assign(prorroga=np.asarray(y, dtype="int64"))
+    # Separamos los datos en entrenamiento, validación y prueba
+    train = df.sample(frac=0.8, random_state=100)
+    test = df.drop(train.index)
+    val = train.sample(frac=0.2, random_state=100)
+    train = train.drop(val.index)
 
-        # Separamos los datos en entrenamiento y validación
-        val = datos.sample(frac=0.2, random_state=100)
-        train = datos.drop(val.index)
+    tf.random.set_seed(42)
+    tf.keras.backend.clear_session()
 
-        train_ds = dataframe_to_dataset(train).batch(TAMANO_LOTE)
-        val_ds = dataframe_to_dataset(val, barajar=False).batch(TAMANO_LOTE)
+    train_ds = dataframe_to_dataset(train)
+    val_ds = dataframe_to_dataset(val)
+    test_ds = dataframe_to_dataset(test)
 
-        keras.utils.set_random_seed(self.semilla)
-        keras.backend.clear_session()
+    # Agrupamos los datos de entrenamiento, validación y prueba en lotes
+    train_ds = train_ds.batch(batch_size)
+    test_ds = test_ds.batch(batch_size)
+    val_ds = val_ds.batch(batch_size)
 
-        # Creamos una lista de inputs para el modelo, de acuerdo con cada tipo de variable
-        inputs = ([keras.Input(shape=(1,), name=c, dtype="int64") for c in self.cat_int]
-                  + [keras.Input(shape=(1,), name=c, dtype="string") for c in self.cat_str]
-                  + [keras.Input(shape=(1,), name=c) for c in self.num])
+    # Creamos una lista de inputs para el modelo, de acuerdo con cada tipo de variable
+    inputs = []
+    for i in cat_int_feats:
+      inputs.append(keras.Input(shape=(1,), name=i, dtype="int64"))
+    for i in cat_str_feats:
+      inputs.append(keras.Input(shape=(1,), name=i, dtype="string"))
+    for i in num_feats:
+      inputs.append(keras.Input(shape=(1,), name=i))
 
-        # Codificamos cada variable con los datos de entrenamiento
-        feats_encoded = []
-        for entrada, c in zip(inputs, self.feats):
-            if c in self.cat_int:
-                feats_encoded.append(encode_categorical_feature(entrada, c, train_ds, False))
-            elif c in self.cat_str:
-                feats_encoded.append(encode_categorical_feature(entrada, c, train_ds, True))
-            else:
-                feats_encoded.append(encode_numerical_feature(entrada, c, train_ds))
+    # Creamos una lista de variables codificadas/normalizadas de acuerdo con su tipo
+    feats_encoded=[]
+    for i,feat in enumerate(cat_int_feats):
+      feats_encoded.append(
+          encode_categorical_feature(inputs[i], feat, train_ds, False)
+      )
+    len_feats = len(feats_encoded)
+    for i,feat in enumerate(cat_str_feats):
+      feats_encoded.append(
+          encode_categorical_feature(inputs[len_feats+i], feat, train_ds, True)
+      )
+    len_feats = len(feats_encoded)
+    for i,feat in enumerate(num_feats):
+      feats_encoded.append(
+          encode_numerical_feature(inputs[len_feats+i], feat, train_ds)
+      )
 
-        # Concatenamos, capa densa de 32 con relu y salida sigmoide
-        all_feats = keras.layers.concatenate(feats_encoded)
-        model_layers = keras.layers.Dense(NEURONAS, activation="relu")(all_feats)
-        model_layers = keras.layers.Dense(1, activation="sigmoid")(model_layers)
-        self.model = keras.Model(inputs, model_layers)
+    # Creamos una capa concatenando todas las variables codificadas
+    all_feats = keras.layers.concatenate(feats_encoded)
 
-        self.model.compile(optimizer="adam", loss="binary_crossentropy",
-                           metrics=["accuracy", keras.metrics.Recall(name="recall")])
-        self.history = self.model.fit(train_ds, epochs=self.epocas,
-                                      validation_data=val_ds, verbose=self.verbose)
-        return self
+    # Capa densa con 32 neuronas y función de activación relu
+    model_layers = keras.layers.Dense(32, activation='relu')(all_feats)
 
-    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
-        tf, _ = _keras()
-        ds = tf.data.Dataset.from_tensor_slices(dict(self._formato(X))).batch(256)
-        p = self.model.predict(ds, verbose=0).ravel()
-        return np.column_stack([1 - p, p])
+    # Capa de salida con 1 neurona y función de activación sigmoide
+    model_layers = keras.layers.Dense(1, activation='sigmoid')(model_layers)
 
-    def historial(self) -> pd.DataFrame:
-        """Pérdida de entrenamiento y de validación por época."""
-        h = self.history.history
-        return pd.DataFrame({"época": range(1, len(h["loss"]) + 1),
-                             "entrenamiento": h["loss"], "validación": h["val_loss"]})
+    # Creamos el modelo con las capas ya creadas y las variables de entrada
+    model = keras.Model(inputs, model_layers)
 
+    # Compilamos el modelo, definiendo optimizador, función de pérdida y métricas
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy', 'recall'])
 
-def _metricas(y: pd.Series, prob: np.ndarray, fraccion: float = 0.10) -> dict:
-    """Las métricas que se pueden explicar en una frase cada una."""
-    y = np.asarray(y)
-    tasa = y.mean()
-    if np.ptp(prob) == 0:
-        # Un modelo que da a todos la misma probabilidad no ordena nada: elegir
-        # su "10% más riesgoso" es elegir al azar, y al azar se acierta la tasa.
-        precision_top = tasa
-    else:
-        n_top = max(1, int(round(len(y) * fraccion)))
-        orden = np.argsort(-prob, kind="stable")
-        precision_top = y[orden[:n_top]].mean()
-    return {
-        "auc": roc_auc_score(y, prob) if 0 < tasa < 1 else np.nan,
-        "precision_top": 100 * precision_top,
-        "veces_la_tasa": precision_top / tasa if tasa else np.nan,
-        "exactitud": 100 * ((prob >= 0.5).astype(int) == y).mean(),
-    }
+    # Entrenamos el modelo con los datos en el formato tf.Dataset
+    history = model.fit(train_ds, epochs=epocas, validation_data=val_ds, verbose=0)
 
+    # Evaluamos en prueba
+    test_res = model.evaluate(test_ds, verbose=0, return_dict=True)
 
-def comparar(tabla: pd.DataFrame, fecha_division, semilla: int = 0,
-             fraccion: float = 0.10, epocas: int = EPOCAS,
-             con_red: bool = True) -> tuple[pd.DataFrame, dict]:
-    """
-    Los tres modelos sobre la misma división. Devuelve la tabla y los modelos.
-
-    - `auc`: si se toma al azar un contrato con prórroga y uno sin ella, la
-      probabilidad de que el modelo ponga más alto al primero. 50 es azar.
-    - `precision_top`: de los contratos que el modelo pone en el `fraccion`
-      más riesgoso, cuántos de verdad tuvieron prórroga. Es la medida que
-      importa para priorizar la vigilancia, que es para lo que existe VigIA.
-    - `veces_la_tasa`: esa precisión dividida por la tasa general. 1 es lo que
-      se lograría revisando contratos al azar.
-    - `exactitud`: se muestra para enseñar por qué no sirve. La línea base
-      saca la más alta sin detectar una sola prórroga.
-    """
-    entrenar, evaluar = dividir_en_el_tiempo(tabla, fecha_division)
-    if entrenar.sum() == 0 or evaluar.sum() == 0:
-        return pd.DataFrame(), {}
-
-    cat_int, cat_str, num = variables(tabla.loc[entrenar])
-    feats = cat_int + cat_str + num
-    X_tr, y_tr = tabla.loc[entrenar, feats], tabla.loc[entrenar, "prorroga"]
-    X_te, y_te = tabla.loc[evaluar, feats], tabla.loc[evaluar, "prorroga"]
-    if y_tr.nunique() < 2:
-        return pd.DataFrame(), {}
-
-    filas, modelos = [], {}
-    for nombre in MODELOS:
-        if nombre == "Línea base":
-            prob = np.zeros(len(y_te))
-        elif nombre == "Regresión logística":
-            modelos[nombre] = logistica(cat_int, cat_str, num).fit(X_tr, y_tr)
-            prob = modelos[nombre].predict_proba(X_te)[:, 1]
-        elif con_red:
-            modelos[nombre] = RedNeuronal(cat_int, cat_str, num, epocas=epocas,
-                                          semilla=semilla).fit(X_tr, y_tr)
-            prob = modelos[nombre].predict_proba(X_te)[:, 1]
-        else:
-            continue
-        filas.append({"modelo": nombre, **_metricas(y_te, prob, fraccion)})
-
-    resultado = pd.DataFrame(filas).set_index("modelo")
-    resultado.attrs.update({
-        "entrenamiento": int(entrenar.sum()), "evaluacion": int(evaluar.sum()),
-        "tasa_entrenamiento": 100 * y_tr.mean(), "tasa_evaluacion": 100 * y_te.mean(),
-        "variables": feats, "X_eval": X_te, "y_eval": y_te,
-    })
-    return resultado, modelos
-
-
-def importancia(modelo, X: pd.DataFrame, y: pd.Series,
-                repeticiones: int = 3, semilla: int = 0) -> pd.Series:
-    """
-    Cuánto empeora el AUC si se revuelve una variable al azar.
-
-    Funciona igual para la logística y para la red, y responde la pregunta que
-    hace cualquiera ante un modelo: ¿en qué se fija? Si revolver una columna no
-    cambia nada, el modelo no la estaba usando.
-    """
-    rng = np.random.default_rng(semilla)
-    base = roc_auc_score(y, modelo.predict_proba(X)[:, 1])
-    caidas = {}
-    for col in X.columns:
-        perdidas = []
-        for _ in range(repeticiones):
-            revuelto = X.copy()
-            revuelto[col] = rng.permutation(revuelto[col].to_numpy())
-            perdidas.append(base - roc_auc_score(y, modelo.predict_proba(revuelto)[:, 1]))
-        caidas[col] = 100 * float(np.mean(perdidas))
-    return pd.Series(caidas).sort_values(ascending=False)
+    logger.info("Red entrenada: %d entrenamiento, %d validación, %d prueba; %s",
+                len(train), len(val), len(test), test_res)
+    return {"model": model, "history": history, "test_res": test_res,
+            "train": len(train), "val": len(val), "test": len(test)}

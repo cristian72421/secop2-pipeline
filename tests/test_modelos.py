@@ -1,10 +1,9 @@
 """
-Pruebas de los modelos de prórroga.
+Pruebas del modelo de prórroga.
 
 No miden si el modelo es bueno con los datos reales —eso depende de la
-extracción— sino lo que haría que un buen número fuera falso: variables que
-se conocen después de firmar, contratos que todavía pueden prorrogarse y una
-división que mezcle pasado con futuro.
+extracción— sino que la tabla no traiga información posterior a la firma y que
+la red sea la de los cuadernos de clase.
 
 Monitoría de investigación - Beca Avanza, Universidad de los Andes.
 """
@@ -74,51 +73,26 @@ def test_solo_entran_contratos_cuyo_fin_pactado_ya_paso(base):
     assert len(tabla) < len(base)
 
 
-def test_se_entrena_con_el_pasado_y_se_evalua_con_el_futuro():
-    """Mezclar al azar dejaría al modelo ver contratos posteriores a los que evalúa."""
-    tabla = m.preparar(_contratos_con_senal(), fecha_corte="2026-01-01")
-    entrenar, evaluar = m.dividir_en_el_tiempo(tabla, "2023-07-01")
-
-    assert tabla.loc[entrenar, "fecha_de_firma"].max() < pd.Timestamp("2023-07-01")
-    assert tabla.loc[evaluar, "fecha_de_firma"].min() >= pd.Timestamp("2023-07-01")
-    assert entrenar.sum() + evaluar.sum() == len(tabla)
-
-
-def test_la_logistica_supera_la_linea_base_y_la_exactitud_engana():
-    """
-    Con una señal plantada, la logística ordena mejor que el azar. Y la línea
-    base, que nunca detecta una prórroga, saca de todos modos una exactitud
-    alta: por eso la medida que se mira es otra.
-    """
-    tabla = m.preparar(_contratos_con_senal(), fecha_corte="2026-01-01")
-    resultado, _ = m.comparar(tabla, "2023-07-01", con_red=False)
-
-    base = resultado.loc["Línea base"]
-    assert base["auc"] == 0.5
-    assert base["veces_la_tasa"] == 1.0
-    assert base["exactitud"] > 60          # alta sin acertar una sola prórroga
-
-    logistica = resultado.loc["Regresión logística"]
-    assert logistica["auc"] > 0.65
-    assert logistica["veces_la_tasa"] > 1.5
-
-
 def test_la_red_es_la_del_cuaderno_heart_del_curso():
     """
-    Misma arquitectura que el ejemplo de clasificación de ACTD: una capa densa
-    de 32 neuronas con ReLU y una salida sigmoide, Adam y entropía cruzada
-    binaria. Y con la señal plantada, también supera la línea base.
+    Misma red y mismos pasos que el cuaderno de clasificación de ACTD: capa
+    densa de 32 neuronas relu, salida de 1 neurona sigmoide, adam, entropía
+    cruzada binaria, métricas accuracy y recall, y partición 80/20 con 20% del
+    entrenamiento para validación.
     """
     pytest.importorskip("tensorflow")
     tabla = m.preparar(_contratos_con_senal(), fecha_corte="2026-01-01")
-    resultado, modelos = m.comparar(tabla, "2023-07-01", epocas=10)
-    red = modelos["Red neuronal"].model
+    resultado = m.entrenar_red(tabla, epocas=3)
+    red = resultado["model"]
 
     densas = [capa for capa in red.layers if capa.__class__.__name__ == "Dense"]
     assert [d.units for d in densas] == [32, 1]
     assert [d.activation.__name__ for d in densas] == ["relu", "sigmoid"]
     assert red.optimizer.__class__.__name__ == "Adam"
     assert red.loss == "binary_crossentropy"
+    assert set(resultado["test_res"]) == {"loss", "accuracy", "recall"}
 
-    assert resultado.loc["Red neuronal", "auc"] > 0.65
-    assert resultado.loc["Red neuronal", "veces_la_tasa"] > 1.5
+    total = resultado["train"] + resultado["val"] + resultado["test"]
+    assert total == len(tabla.dropna())
+    assert resultado["test"] == round(0.2 * total)
+    assert resultado["val"] == round(0.2 * (resultado["train"] + resultado["val"]))

@@ -569,51 +569,56 @@ cualquier otra: la entrada en vigencia de una norma, un cambio de director.
 La fila de variación queda vacía donde el valor anterior era cero, en vez de
 mostrar un infinito.
 
-## 8sexies. `src/modelos.py` — predecir prórrogas
+## 8sexies. `src/modelos.py` — red neuronal para predecir prórrogas
 
-La tarea de VigIA: anticipar al nivel de contrato si habrá retraso, para
-priorizar la vigilancia. La respuesta es `dias_adicionados > 0`. Se comparan
-tres modelos sobre los mismos datos y la misma división:
+La respuesta es si el contrato tuvo prórroga (`dias_adicionados > 0`). El
+modelo usa solo lo que está en los cuadernos del curso ACTD:
 
-| Modelo | Qué es |
-|---|---|
-| Línea base | Decir siempre que no. Es lo que hay que superar. |
-| Regresión logística | El modelo clásico (scikit-learn); sus coeficientes se leen. |
-| Red neuronal | La del cuaderno de clasificación del curso ACTD (Keras + TensorFlow). |
+- **`actd_redes_clasif_dataset_heart_starter.ipynb`** (clases 15-16):
+  `dataframe_to_dataset`, `encode_numerical_feature` y
+  `encode_categorical_feature` con el mismo código; una entrada por variable
+  (`IntegerLookup`, `StringLookup`, `Normalization`); `concatenate`; una capa
+  `Dense(32, activation='relu')` y una salida `Dense(1, activation='sigmoid')`;
+  `optimizer='adam'`, `loss='binary_crossentropy'`,
+  `metrics=['accuracy', 'recall']`; lotes de 32 y 50 épocas; partición 80/20
+  con `random_state=100` y validación del 20% del entrenamiento.
+- **`actd_redes_reg_starter.ipynb`** (clases 11-12): `dropna` para los NAs,
+  `history` y `test_res` con `evaluate`.
+- **`actd_redes_clasif_init_iris_mnist_starter.ipynb`**: `tf.random.set_seed(42)`
+  y `clear_session()` antes de crear el modelo.
 
-### La red es la del cuaderno `heart` del curso
+`entrenar_red(tabla, epocas)` ejecuta esos pasos en el mismo orden y devuelve
+el modelo, el historial, `test_res` (pérdida, accuracy y recall en prueba) y el
+tamaño de cada conjunto. La pestaña *Modelo de prórrogas* de la app la llama y
+muestra esos resultados y la pérdida por época.
 
-`actd_redes_clasif_dataset_heart_starter.ipynb` (ACTD, clases 15-16). Se
-conservan sus funciones con el mismo nombre —`dataframe_to_dataset`,
-`encode_numerical_feature`, `encode_categorical_feature`— y la misma
-arquitectura:
+**Requiere Python 3.13 o anterior**: TensorFlow no tiene versión para 3.14. Sin
+TensorFlow la app sigue funcionando y la pestaña avisa que falta.
 
-- una entrada por variable, separadas en categóricas enteras (`IntegerLookup`),
-  categóricas de texto (`StringLookup`) y numéricas (`Normalization`);
-- todas concatenadas, una capa `Dense(32, activation="relu")` y una salida
-  `Dense(1, activation="sigmoid")`;
-- `optimizer="adam"`, `loss="binary_crossentropy"`, lotes de 32, 50 épocas;
-- validación: el 20% del entrenamiento con `random_state=100`.
+### La tabla de entrada: `preparar`
 
-Tres diferencias, todas por los datos:
+Es lo único propio del proyecto: arma, a partir de SECOP 2, el equivalente a
+`heart.csv`. Deja solo variables que se conocen al firmar el contrato y solo
+contratos cuyo fin pactado ya pasó (uno en ejecución todavía puede recibir su
+prórroga).
 
-1. **La prueba es temporal**, no un 20% al azar: se entrena con contratos
-   anteriores a una fecha y se evalúa con los posteriores.
-2. **Hay vacíos** en las numéricas (`heart` no tenía). Se llenan con la mediana
-   de entrenamiento.
-3. **El mes de firma va como categórica entera**, como `slope` y `ca` en `heart`.
+Las columnas que SECOP actualiza después de la firma quedan fuera
+(`VARIABLES_PROHIBIDAS`). Se comprobó con los datos de ANT, UNP y ARN:
 
-`notebooks/modelo_prorrogas.ipynb` usa solo lo que está en los cuadernos de
-clase. Sigue el cuaderno `heart` y, después del entrenamiento, el de regresión
-(auto-mpg): `dropna`, `%%time`, `history`, la gráfica de pérdida y `test_res`.
-De sus 54 celdas de código, 47 son idénticas a una celda de clase. Las otras
-siete son la ruta del archivo, las tres listas de variables, `history =` en el
-`fit`, la etiqueta del eje de la gráfica y `evaluate` sobre `test_ds`.
+- `estado_contrato`: el 66% de los «Modificado» tiene prórroga y ninguno de
+  «En ejecución».
+- `valor_del_contrato`: en la UNP, con prórroga vale 1,5 veces el precio base
+  del proceso (mediana); sin ella, 1,0. Ya incluye la adición. En su lugar se
+  usa `precio_base`, de la tabla de procesos.
+- `fecha_de_fin_del_contrato` sí se puede usar: SECOP no la mueve al prorrogar.
 
-El cuaderno lee `data/processed/prorrogas.csv`, que cumple el papel de
-`heart.csv`: una fila por contrato, las variables y `target`. Ese archivo se
-arma fuera del cuaderno con `preparar`, que es la que quita las variables con
-fuga y los contratos en ejecución:
+### El cuaderno
+
+`notebooks/modelo_prorrogas.ipynb` hace lo mismo, celda por celda. De sus 54
+celdas de código, 47 son idénticas a una celda de los cuadernos de clase; las
+otras siete son la ruta del archivo, las tres listas de variables, `history =`
+en el `fit`, la etiqueta del eje y `evaluate` sobre `test_ds`. Lee
+`data/processed/prorrogas.csv`, que se arma con `preparar`:
 
 ```python
 import pandas as pd
@@ -626,73 +631,8 @@ tabla[[c for c in columnas if c in tabla] + ["target"]].to_csv(
     "data/processed/prorrogas.csv", index=False)
 ```
 
-En el cuaderno ejecutado (prueba = 20% al azar, como en clase) la red queda con
-pérdida de 0,187, accuracy de 0,927 y recall de 0,578 en prueba.
-
-**Requiere Python 3.13 o anterior**: TensorFlow 2.21 no tiene versión para 3.14.
-Sin TensorFlow la aplicación sigue funcionando y la pestaña entrena solo la
-logística.
-
-### Lo que hace creíble el resultado
-
-**Solo variables que se conocen al firmar.** Medido contra ANT, UNP y ARN:
-
-- `estado_contrato`: el 66% de los «Modificado» tiene prórroga; ninguno de
-  «En ejecución». Cambia de valor justamente porque hubo prórroga.
-- `valor_del_contrato`: en la UNP, con prórroga vale 1,5 veces el precio base
-  del proceso (mediana); sin ella, 1,0. Ya trae sumada la adición. En su lugar
-  se usa `precio_base`, que viene de la tabla de procesos y es anterior a la
-  firma.
-- `fecha_de_fin_del_contrato` **sí** sirve: la diferencia con la duración
-  pactada es la misma con y sin prórroga, así que SECOP no la mueve.
-
-La lista completa, con el motivo de cada una, está en `VARIABLES_PROHIBIDAS`.
-
-**Solo contratos cuyo fin pactado ya pasó.** Uno en ejecución todavía puede
-prorrogarse; contarlo como «sin prórroga» sería afirmar lo que no se sabe.
-
-**Se entrena con el pasado y se evalúa con el futuro.** No se mezclan al azar.
-
-### Las métricas
-
-- **AUC**: si se toma un contrato con prórroga y uno sin ella, la probabilidad
-  de que el modelo ponga más alto al primero. 0,5 es azar.
-- **Acierto en el 10% más riesgoso**: de los contratos que el modelo pondría
-  primero en la fila de revisión, cuántos tuvieron prórroga. Es la que importa
-  para priorizar.
-- **Exactitud**: se muestra para enseñar por qué no sirve. Con 12% de
-  prórrogas, decir siempre que no acierta el 88%.
-
-`importancia()` revuelve cada variable y mide cuánto cae el AUC. Funciona igual
-para los dos modelos y responde en qué se fija cada uno.
-
-### Lo que se encontró (ANT, UNP y ARN; entrena 2022–2024, evalúa 2025–2026)
-
-| | AUC | Acierto en el 10% más riesgoso |
-|---|---|---|
-| Línea base | 0,50 | 17,6% |
-| Regresión logística | 0,92 | 72,3% |
-| Red neuronal (3 semillas) | 0,86 – 0,87 | 50 – 53% |
-
-- **La red no le gana a la logística.** Es estable entre semillas, así que no es
-  cuestión de suerte en la inicialización.
-- **Menos épocas le sirven más a la red**: AUC de 0,895 con 5 épocas, 0,887 con
-  10, 0,872 con 25 y 0,86 con 50. Aun en su mejor caso queda por debajo de la
-  logística. Ojo: la pérdida de validación toca su mínimo hacia la época 26-28,
-  más tarde de lo que conviene para la prueba. La validación sale al azar del
-  mismo periodo que el entrenamiento, así que no ve que los contratos de 2025
-  se comportan distinto.
-- **Casi todo lo explica la duración pactada.** Los contratos pactados para
-  terminar en septiembre se prorrogan el 55% de las veces; los de octubre, el
-  44%; los de diciembre, el 10%. Es el patrón de extender la planta de
-  contratistas hasta fin de año. Es una prórroga administrativa, no el retraso
-  de entrega que mide VigIA.
-- **Sin prestación de servicios quedan 1.944 contratos.** Ahí la logística tiene
-  AUC de 0,72 y la red entre 0,65 y 0,70 según la semilla: casi empatadas, y en
-  el 10% más riesgoso la red acierta lo mismo o algo más (54–61% frente a 58%).
-- **La tasa de prórroga sube con los años**: 2,3% de lo firmado en 2022, 14,7%
-  en 2025. Puede ser un cambio de comportamiento o de registro en SECOP; no se
-  puede distinguir con estos datos.
+Resultado del cuaderno ejecutado (ANT, UNP y ARN, 2022 a 2026): en prueba,
+pérdida de 0,187, accuracy de 0,927 y recall de 0,578.
 
 ## 9. La configuración
 

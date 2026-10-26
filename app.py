@@ -1305,22 +1305,13 @@ else:
     with t5:
         oscuro = modo_oscuro()
         st.caption(
-            "¿Este contrato va a tener prórroga? Es la tarea de los modelos de "
-            "VigIA: anticipar retrasos para priorizar la vigilancia. Se "
-            "comparan una regresión logística y la red neuronal del cuaderno "
-            "de clasificación del curso (32 neuronas ReLU, salida sigmoide, "
-            "Adam) contra la línea base de decir siempre que no. Solo entran "
-            "variables que se conocen al firmar y contratos cuyo fin pactado ya "
-            "pasó."
+            "Red neuronal para clasificación, con los mismos pasos del cuaderno "
+            "de clase de ACTD (datos `heart`): una capa densa de 32 neuronas "
+            "con activación relu y una salida de 1 neurona con activación "
+            "sigmoide, que da la probabilidad de que el contrato tenga "
+            "prórroga. Prueba: 20% de los contratos al azar; validación: 20% "
+            "del entrenamiento."
         )
-        with st.expander("Variables que se dejan fuera y por qué"):
-            st.dataframe(
-                pd.DataFrame(
-                    {"motivo": list(mdl.VARIABLES_PROHIBIDAS.values())},
-                    index=pd.Index(list(mdl.VARIABLES_PROHIBIDAS), name="columna"),
-                ),
-                width="stretch",
-            )
 
         tabla_m = mdl.preparar(df)
         if tabla_m.empty or tabla_m["prorroga"].nunique() < 2:
@@ -1330,126 +1321,59 @@ else:
                 "con procesos es la que trae todo, incluido el precio base."
             )
         else:
-            m1, m2 = st.columns([1, 2])
-            sugerida = tabla_m["fecha_de_firma"].quantile(0.6).normalize()
-            division = m1.date_input(
-                "Entrenar con lo firmado antes de", value=sugerida.date(),
-                key="mdl_division",
-                help="Lo firmado desde esa fecha queda para evaluar. Por "
-                     "defecto, el 60% más antiguo entrena.",
-            )
+            m1, m2 = st.columns([2, 1])
             GRUPOS_M = {"Todos los contratos": None,
                         "Sin prestación de servicios": False,
                         "Solo prestación de servicios": True}
-            grupo_m = m2.radio("Contratos", list(GRUPOS_M), horizontal=True,
+            grupo_m = m1.radio("Contratos", list(GRUPOS_M), horizontal=True,
                                key="mdl_grupo")
             if GRUPOS_M[grupo_m] is not None:
                 es_serv = ind.es_prestacion_servicios(df).reindex(tabla_m.index)
                 tabla_m = tabla_m.loc[es_serv == GRUPOS_M[grupo_m]]
+            epocas = m2.number_input("Épocas", min_value=5, max_value=200,
+                                     value=mdl.EPOCAS, step=5, key="mdl_epocas")
 
-            epocas = st.number_input(
-                "Épocas de la red", min_value=5, max_value=200, value=mdl.EPOCAS,
-                step=5, key="mdl_epocas",
-                help="50, como en el cuaderno de clase. Con unos 30.000 "
-                     "contratos tarda un par de minutos.",
-            )
-            if st.button("Entrenar y evaluar", icon=":material/model_training:",
+            if st.button("Entrenar", icon=":material/model_training:",
                          key="mdl_entrenar"):
                 try:
                     import tensorflow  # noqa: F401
-                    con_red = True
                 except ImportError:
-                    con_red = False
-                    st.warning(
-                        "TensorFlow no está instalado en este entorno, así que "
-                        "solo se entrena la logística. Necesita Python 3.13 o "
-                        "anterior: ver `docs/GUIA.md`."
+                    st.error(
+                        "TensorFlow no está instalado en este entorno. Necesita "
+                        "Python 3.13 o anterior: ver `docs/GUIA.md`."
                     )
-                with st.spinner("Entrenando..."):
-                    resultado, modelos = mdl.comparar(
-                        tabla_m, division, epocas=int(epocas), con_red=con_red)
-                importancias = {}
-                if not resultado.empty:
-                    # Se calculan una vez: con la red, revolver cada variable
-                    # y volver a predecir tarda, y no cambia entre recargas.
-                    X_ev, y_ev = resultado.attrs["X_eval"], resultado.attrs["y_eval"]
-                    if len(X_ev) > 5000:
-                        X_ev = X_ev.sample(5000, random_state=0)
-                        y_ev = y_ev.loc[X_ev.index]
-                    with st.spinner("Midiendo en qué se fija cada modelo..."):
-                        importancias = {n: mdl.importancia(mo, X_ev, y_ev, repeticiones=2)
-                                        for n, mo in modelos.items()}
-                st.session_state["mdl_resultado"] = (resultado, modelos, grupo_m, importancias)
+                else:
+                    with st.spinner("Entrenando la red..."):
+                        st.session_state["mdl_red"] = (
+                            mdl.entrenar_red(tabla_m, epocas=int(epocas)), grupo_m)
 
-            guardado = st.session_state.get("mdl_resultado")
-            if guardado and len(guardado) < 4:
-                guardado = None   # resultado de una versión anterior de la pestaña
-            if guardado and guardado[2] != grupo_m:
+            guardado = st.session_state.get("mdl_red")
+            if guardado and guardado[1] != grupo_m:
                 st.caption("Los resultados de abajo son de otro grupo: vuelve a entrenar.")
             if guardado:
-                resultado, modelos, _, importancias = guardado
-                if resultado.empty:
-                    st.warning("No hay contratos de los dos lados de la fecha, "
-                               "o el entrenamiento no tiene los dos casos.")
-                else:
-                    a = resultado.attrs
-                    st.caption(
-                        f"Entrenamiento: {fmt.numero(a['entrenamiento'])} contratos, "
-                        f"{fmt.porcentaje(a['tasa_entrenamiento'])} con prórroga. "
-                        f"Evaluación: {fmt.numero(a['evaluacion'])} contratos, "
-                        f"{fmt.porcentaje(a['tasa_evaluacion'])} con prórroga."
-                    )
-                    if a["evaluacion"] < 1000:
-                        st.warning(
-                            "Menos de mil contratos para evaluar: con tan pocos "
-                            "la red neuronal es inestable y cambia mucho de una "
-                            "semilla a otra. Mira sobre todo la logística."
-                        )
-                    vista = pd.DataFrame({
-                        "AUC": resultado["auc"].map(lambda v: fmt.numero(v, 2)),
-                        "Acierto en el 10% más riesgoso":
-                            resultado["precision_top"].map(fmt.porcentaje),
-                        "Veces mejor que al azar":
-                            resultado["veces_la_tasa"].map(lambda v: fmt.numero(v, 1) + "×"),
-                        "Exactitud": resultado["exactitud"].map(fmt.porcentaje),
-                    }, index=resultado.index)
-                    st.dataframe(vista, width="stretch")
-                    st.caption(
-                        "**AUC**: si se toma un contrato con prórroga y uno sin "
-                        "ella, la probabilidad de que el modelo ponga más alto "
-                        "al primero; 0,5 es azar. **Acierto en el 10% más "
-                        "riesgoso**: de los contratos que el modelo pondría "
-                        "primero en la fila de revisión, cuántos de verdad "
-                        "tuvieron prórroga. **Exactitud**: se muestra para ver "
-                        "por qué no sirve; la línea base saca una alta sin "
-                        "detectar una sola prórroga."
-                    )
+                r = guardado[0]
+                st.caption(
+                    f"Entrenamiento: {fmt.numero(r['train'])} contratos · "
+                    f"validación: {fmt.numero(r['val'])} · prueba: {fmt.numero(r['test'])}."
+                )
+                st.markdown("#### Resultado en prueba")
+                tr = r["test_res"]
+                k1, k2, k3 = st.columns(3)
+                k1.metric("Pérdida (binary_crossentropy)", fmt.numero(tr["loss"], 3))
+                k2.metric("Accuracy", fmt.numero(tr["accuracy"], 3))
+                k3.metric("Recall", fmt.numero(tr["recall"], 3))
 
-                    if "Red neuronal" in modelos:
-                        st.markdown("#### Pérdida de la red por época")
-                        st.caption(
-                            "Como en clase: si la pérdida de validación sube "
-                            "mientras la de entrenamiento sigue bajando, la red "
-                            "está memorizando."
-                        )
-                        h = modelos["Red neuronal"].historial().melt(
-                            id_vars="época", var_name="conjunto", value_name="pérdida")
-                        grafica(st, gr.lineas(
-                            h.assign(época=h["época"].astype(str)), x="época",
-                            y="pérdida", serie="conjunto", titulo_y="Pérdida",
-                            decimales=3, oscuro=oscuro, alto=300,
-                        ), clave="g_perdida")
-
-                    st.markdown("#### ¿En qué se fija el modelo?")
-                    elegido = st.selectbox("Modelo", list(importancias), key="mdl_elegido")
-                    imp = importancias[elegido]
-                    grafica(st, gr.barras(
-                        [mdl.NOMBRES.get(c, c) for c in imp.index], imp.values,
-                        unidad="puntos de AUC", decimales=1,
-                        titulo="Cuánto empeora el AUC si se revuelve la variable",
-                        oscuro=oscuro, alto=max(260, 28 * len(imp)),
-                    ), clave="g_importancia")
-
+                st.markdown("#### Pérdida por época")
+                h = r["history"].history
+                perdida = pd.DataFrame({
+                    "época": [str(e + 1) for e in r["history"].epoch] * 2,
+                    "serie": ["loss"] * len(h["loss"]) + ["val_loss"] * len(h["val_loss"]),
+                    "pérdida": h["loss"] + h["val_loss"],
+                })
+                grafica(st, gr.lineas(
+                    perdida, x="época", y="pérdida", serie="serie",
+                    titulo_y="Error", decimales=3, oscuro=oscuro, alto=300,
+                ), clave="g_perdida")
 
 # --------------------------- Guardar la selección ---------------------------
 st.divider()
