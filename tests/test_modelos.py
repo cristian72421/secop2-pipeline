@@ -57,7 +57,9 @@ def test_las_variables_que_se_actualizan_despues_de_firmar_no_entran():
     assert "estado_contrato" not in usadas
     assert "valor_del_contrato" not in usadas
     assert m.OBJETIVO not in usadas
-    assert usadas >= {"tipo_de_contrato", "duracion_planeada", "log_precio_base"}
+    # La fecha de fin del contrato se mueve con la prórroga (ver VARIABLES_PROHIBIDAS).
+    assert "duracion_planeada" not in usadas
+    assert usadas >= {"tipo_de_contrato", "log_precio_base"}
 
 
 def test_solo_entran_contratos_cuyo_fin_pactado_ya_paso(base):
@@ -80,7 +82,8 @@ def test_la_red_es_la_del_cuaderno_heart_del_curso():
     cruzada binaria, métricas accuracy y recall, y partición 80/20 con 20% del
     entrenamiento para validación.
     """
-    pytest.importorskip("tensorflow")
+    # exc_type=ImportError: también omite si Windows bloquea las DLL de TensorFlow
+    pytest.importorskip("tensorflow", exc_type=ImportError)
     tabla = m.preparar(_contratos_con_senal(), fecha_corte="2026-01-01")
     resultado = m.entrenar_red(tabla, epocas=3)
     red = resultado["model"]
@@ -96,3 +99,39 @@ def test_la_red_es_la_del_cuaderno_heart_del_curso():
     assert total == len(tabla.dropna())
     assert resultado["test"] == round(0.2 * total)
     assert resultado["val"] == round(0.2 * (resultado["train"] + resultado["val"]))
+
+
+def test_los_deltas_de_procesos_se_calculan_en_dias():
+    """
+    Notas del 26/10: traer de la tabla de procesos los deltas de fechas en
+    días. Los de procesos competitivos se calculan, pero no entran a la red.
+    """
+    firma = pd.Timestamp("2024-03-10")
+    df = pd.DataFrame({
+        "fecha_de_firma": [firma],
+        "fecha_de_inicio_del_contrato": [firma + pd.Timedelta(days=2)],
+        "fecha_de_fin_del_contrato": [firma + pd.Timedelta(days=100)],
+        "dias_adicionados": [0],
+        "fecha_de_publicacion_del": [firma - pd.Timedelta(days=30)],
+        "fecha_de_ultima_publicaci": [firma - pd.Timedelta(days=25)],
+        "fecha_de_recepcion_de": [firma - pd.Timedelta(days=15)],
+        "fecha_adjudicacion": [firma - pd.Timedelta(days=4)],
+        "duracion": [3],
+        "unidad_de_duracion": ["Mes(es)"],
+    })
+    fila = m.preparar(df, fecha_corte="2026-01-01").iloc[0]
+
+    assert fila["dias_publicacion_a_firma"] == 30
+    assert fila["dias_entre_publicaciones"] == 5
+    assert fila["duracion_proceso"] == pytest.approx(91.2)
+    assert fila["dias_publicacion_a_recepcion"] == 15
+    assert fila["dias_recepcion_a_adjudicacion"] == 11
+    assert fila["dias_adjudicacion_a_firma"] == 4
+
+    _, _, numericas = m.variables(pd.concat([m.preparar(df, "2026-01-01")] * 2)
+                                  .assign(dias_publicacion_a_firma=[30, 31],
+                                          dias_entre_publicaciones=[5, 0],
+                                          duracion_proceso=[91.2, 60.8]))
+    assert {"dias_publicacion_a_firma", "dias_entre_publicaciones",
+            "duracion_proceso"} <= set(numericas)
+    assert not set(m.DELTAS_COMPETITIVOS) & set(numericas)

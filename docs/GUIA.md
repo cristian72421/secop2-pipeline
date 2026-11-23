@@ -610,7 +610,30 @@ Las columnas que SECOP actualiza después de la firma quedan fuera
 - `valor_del_contrato`: en la UNP, con prórroga vale 1,5 veces el precio base
   del proceso (mediana); sin ella, 1,0. Ya incluye la adición. En su lugar se
   usa `precio_base`, de la tabla de procesos.
-- `fecha_de_fin_del_contrato` sí se puede usar: SECOP no la mueve al prorrogar.
+- `fecha_de_fin_del_contrato` **sí se mueve** al prorrogar (corregido el
+  23/11). Se descubrió al cruzarla con la duración estimada del proceso: sin
+  prórroga, fin − inicio ≈ duración del proceso; con prórroga, ≈ duración del
+  proceso + días adicionados. Por eso la duración del contrato
+  (`duracion_planeada`) quedó prohibida y se reemplazó por `duracion_proceso`.
+  La comprobación anterior comparaba la fecha de fin con el texto de duración
+  del mismo contrato, que también se actualiza, y por eso no lo detectó.
+
+### Deltas de fechas de la tabla de procesos (notas del 26/10)
+
+Todas las fechas de procesos son anteriores a la firma (ninguna cae después en
+ANT, UNP y ARN). Entran a la red tres variables, llenas en el 99,8% de los
+contratos:
+
+| Variable | Qué mide |
+|---|---|
+| `dias_publicacion_a_firma` | primera publicación del proceso → firma |
+| `dias_entre_publicaciones` | primera → última publicación del proceso |
+| `duracion_proceso` | duración estimada del proceso (`duracion` × unidad), en días |
+
+`DELTAS_COMPETITIVOS` (publicación → cierre de ofertas → adjudicación → firma)
+solo existen en procesos competitivos: llenos en el 1% de los contratos y en el
+29% sin prestación de servicios. Se calculan para el análisis exploratorio pero
+no entran a la red, porque con `dropna`, como en clase, dejarían fuera al 99%.
 
 ### El cuaderno
 
@@ -624,15 +647,24 @@ en el `fit`, la etiqueta del eje y `evaluate` sobre `test_ds`. Lee
 import pandas as pd
 from src import modelos as mdl
 
-base = pd.read_csv("data/processed/base_prorrogas_ANT_UNP_ARN.csv", low_memory=False)
+base = pd.read_csv("data/processed/base_prorrogas_ANT_UNP_ARN.csv.gz", low_memory=False)
 tabla = mdl.preparar(base).rename(columns={"prorroga": "target"})
 columnas = list(mdl.CATEGORICAS_ENTERAS + mdl.CATEGORICAS + mdl.NUMERICAS)
 tabla[[c for c in columnas if c in tabla] + ["target"]].to_csv(
     "data/processed/prorrogas.csv", index=False)
 ```
 
-Resultado del cuaderno ejecutado (ANT, UNP y ARN, 2022 a 2026): en prueba,
-pérdida de 0,187, accuracy de 0,927 y recall de 0,578.
+Resultados en prueba (ANT, UNP y ARN, 2022 a 2026; 52.808 contratos, 12% con
+prórroga; partición al azar como en clase):
+
+| Variables | Pérdida | Accuracy | Recall | AUC |
+|---|---|---|---|---|
+| Con `duracion_planeada` (con fuga, ya no se usa) | 0,198 | 0,923 | 0,519 | 0,937 |
+| Sin fuga, sin deltas de procesos | 0,294 | 0,879 | 0,112 | 0,831 |
+| **Sin fuga, con deltas de procesos** | **0,270** | **0,886** | **0,329** | **0,875** |
+
+El accuracy casi no se mueve porque decir siempre «no» ya da 88%. Los
+resultados anteriores al 23/11 estaban inflados por la fuga de la fecha de fin.
 
 ## 9. La configuración
 

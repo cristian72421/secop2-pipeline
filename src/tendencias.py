@@ -196,7 +196,9 @@ def comparar_corte(df: pd.DataFrame, corte, meses: int | None = None,
         # Ningún contrato cae en la ventana: la fecha de corte está lejos de
         # los datos cargados.
         return pd.DataFrame()
-    tabla = pd.DataFrame(filas).set_index("tramo")
+    # En float desde el principio: la fila de variación lleva decimales y
+    # vacíos, y pandas dejará de convertir columnas enteras por su cuenta.
+    tabla = pd.DataFrame(filas).set_index("tramo").astype(float)
     if len(tabla) == 2:
         # La variación relativa solo tiene sentido si había algo antes.
         anterior = tabla.loc["Antes"]

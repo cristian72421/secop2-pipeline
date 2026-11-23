@@ -49,6 +49,10 @@ VARIABLES_PROHIBIDAS = {
     "valor_pendiente_de_pago": "se conoce durante la ejecución",
     "valor_pendiente_de_ejecucion": "se conoce durante la ejecución",
     "liquidaci_n": "se conoce al final",
+    # Se descubrió al cruzar con la duración estimada del proceso: con prórroga,
+    # fin − inicio ≈ duración del proceso + días adicionados; sin prórroga,
+    # ≈ duración del proceso. SECOP mueve la fecha de fin al prorrogar.
+    "duracion_planeada": "la fecha de fin del contrato ya incluye la prórroga",
 }
 
 # Variables que sí se conocen al firmar. Las que la tabla no traiga se omiten.
@@ -68,10 +72,31 @@ CATEGORICAS = (
 CATEGORICAS_ENTERAS = ("mes_de_firma",)
 NUMERICAS = (
     "log_precio_base",             # el valor estimado antes de firmar
-    "duracion_planeada",           # días entre inicio y fin pactados
     "dias_firma_a_inicio",
     "respuestas_al_procedimiento",
+    # Deltas de fechas de la tabla de procesos (notas del 26/10). Todas las
+    # fechas de origen son anteriores a la firma: se comprobó con ANT, UNP y
+    # ARN que ninguna cae después.
+    "dias_publicacion_a_firma",    # primera publicación del proceso -> firma
+    "dias_entre_publicaciones",    # primera -> última publicación del proceso
+    "duracion_proceso",            # duración estimada del proceso, en días
+                                   # (reemplaza a fin − inicio del contrato)
 )
+
+# Deltas que solo existen en procesos competitivos (licitación, selección
+# abreviada, concurso, mínima cuantía): en ANT, UNP y ARN están llenos en el 1%
+# de los contratos (29% sin prestación de servicios). Se calculan para el
+# análisis exploratorio, pero no entran a la red: con `dropna`, como en clase,
+# dejarían por fuera al 99% de los contratos.
+DELTAS_COMPETITIVOS = (
+    "dias_publicacion_a_recepcion",    # publicación -> cierre de ofertas
+    "dias_recepcion_a_adjudicacion",   # cierre de ofertas -> adjudicación
+    "dias_adjudicacion_a_firma",       # adjudicación -> firma
+)
+
+# Unidades de `duracion` en la tabla de procesos, en días.
+DIAS_POR_UNIDAD = {"mes(es)": 30.4, "día(s)": 1, "dia(s)": 1, "año(s)": 365,
+                   "semana(s)": 7, "hora(s)": 1 / 24}
 
 def preparar(df: pd.DataFrame, fecha_corte=None) -> pd.DataFrame:
     """
@@ -79,9 +104,10 @@ def preparar(df: pd.DataFrame, fecha_corte=None) -> pd.DataFrame:
 
     Solo entran contratos cuyo fin pactado ya pasó a `fecha_corte` (hoy por
     defecto). Uno que sigue en ejecución todavía puede recibir su prórroga, y
-    contarlo como "sin prórroga" sería decir algo que no se sabe. La fecha de
-    fin sirve para esto porque SECOP no la mueve al prorrogar: se comprobó que
-    la diferencia con la duración pactada es la misma con y sin prórroga.
+    contarlo como "sin prórroga" sería decir algo que no se sabe. SECOP mueve
+    la fecha de fin al prorrogar, así que un contrato prorrogado entra más
+    tarde que su fin original: el filtro queda del lado prudente. Por esa misma
+    razón la fecha de fin no sirve como variable de entrada.
     """
     necesarias = {OBJETIVO, "fecha_de_firma"}
     if df.empty or not necesarias.issubset(df.columns):
@@ -107,13 +133,37 @@ def preparar(df: pd.DataFrame, fecha_corte=None) -> pd.DataFrame:
     if "precio_base" in df.columns:
         precio = pd.to_numeric(df["precio_base"], errors="coerce")
         tabla["log_precio_base"] = np.log10(precio.where(precio > 0))
-    if inicio is not None and fin is not None:
-        tabla["duracion_planeada"] = (fin - inicio).dt.days
     if inicio is not None:
         tabla["dias_firma_a_inicio"] = (inicio - firma).dt.days
     if "respuestas_al_procedimiento" in df.columns:
         tabla["respuestas_al_procedimiento"] = pd.to_numeric(
             df["respuestas_al_procedimiento"], errors="coerce")
+
+    # Deltas de fechas de la tabla de procesos, en días.
+    def fecha(col):
+        return pd.to_datetime(df[col], errors="coerce") if col in df.columns else None
+
+    def dias(desde, hasta):
+        return (hasta - desde).dt.total_seconds() / 86400
+
+    publicacion = fecha("fecha_de_publicacion_del")
+    ultima = fecha("fecha_de_ultima_publicaci")
+    recepcion = fecha("fecha_de_recepcion_de")
+    adjudicacion = fecha("fecha_adjudicacion")
+    if publicacion is not None:
+        tabla["dias_publicacion_a_firma"] = dias(publicacion, firma)
+        if ultima is not None:
+            tabla["dias_entre_publicaciones"] = dias(publicacion, ultima)
+        if recepcion is not None:
+            tabla["dias_publicacion_a_recepcion"] = dias(publicacion, recepcion)
+    if recepcion is not None and adjudicacion is not None:
+        tabla["dias_recepcion_a_adjudicacion"] = dias(recepcion, adjudicacion)
+    if adjudicacion is not None:
+        tabla["dias_adjudicacion_a_firma"] = dias(adjudicacion, firma)
+    if "duracion" in df.columns and "unidad_de_duracion" in df.columns:
+        factor = df["unidad_de_duracion"].astype(str).str.strip().str.lower().map(DIAS_POR_UNIDAD)
+        tabla["duracion_proceso"] = pd.to_numeric(df["duracion"], errors="coerce") * factor
+
     tabla["mes_de_firma"] = firma.dt.month
 
     tabla["fecha_de_firma"] = firma
