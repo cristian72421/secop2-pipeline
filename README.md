@@ -180,7 +180,7 @@ modelos e índices de riesgo.
 
 `notebooks/reporte_descriptivo.ipynb` extrae los datos con el mismo pipeline
 (`construir_base_contratos` de `src/flujo_vigia.py`) y calcula las cifras con
-`src/indicadores.py` y `src/tendencias.py`. Las entidades y el periodo se
+`src/indicadores.py`. Las entidades y el periodo se
 cambian en la celda de parámetros, al inicio del cuaderno. La primera ejecución
 descarga los datos y los guarda en `data/processed/`; las siguientes los leen
 de ahí.

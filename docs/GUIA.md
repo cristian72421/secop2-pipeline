@@ -806,16 +806,16 @@ el modelo; las del modelo se omiten si TensorFlow no está instalado.
 ### El reporte descriptivo (`notebooks/reporte_descriptivo.ipynb`)
 
 Usa el mismo pipeline que la app: `construir_base_contratos` extrae contratos y
-procesos y los une; las cifras salen de `src/indicadores.py` y
-`src/tendencias.py`. Las entidades y el periodo están en la celda de
+procesos y los une; las cifras salen de `src/indicadores.py`. Las entidades y el periodo están en la celda de
 parámetros. Los datos se guardan en `data/processed/` para no descargarlos en
 cada ejecución, y solo con las columnas que usa el reporte (la tabla original
 trae datos personales de representantes legales y cuentas bancarias).
 
-Secciones: calidad de los datos, panorama por entidad, contratación por año,
-modalidad y tipo, causales de la contratación directa, prestación de servicios
-frente al resto, valores, tiempos, competencia, proveedores, prórrogas y
-cambios en el tiempo. Cierra con las conclusiones.
+Secciones: calidad de los datos, mirada general por entidad, contratación por
+año, modalidad y tipo de contrato, servicios profesionales frente al resto,
+valores, tiempos, ofertas, proveedores, prórrogas y meses de firma. Cierra con
+las conclusiones. Usa solo herramientas vistas en el curso: estadísticas
+descriptivas, tablas por grupo, barras, histogramas y diagramas de caja.
 
 Lo principal con ANT, UNP y ARN (60.933 contratos, 2022 – 2026):
 
@@ -826,8 +826,8 @@ Lo principal con ANT, UNP y ARN (60.933 contratos, 2022 – 2026):
   34 % y el 50 % del valor.
 - Prórrogas: 22,5 % de los contratos en la UNP, 9,8 % en la ANT, 3,5 % en la
   ARN.
-- En 2022 y 2026 casi no hay firmas de febrero a junio, lo que coincide con la
-  restricción de la Ley de Garantías antes de la elección presidencial.
+- En 2022 y 2026 casi no hubo firmas de febrero a junio, algo que no pasa en
+  los demás años.
 
 ### Primeras cifras (UNP, Bogotá, 2025 — 3.273 contratos)
 
