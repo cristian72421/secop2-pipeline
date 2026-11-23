@@ -1375,6 +1375,46 @@ else:
                     titulo_y="Error", decimales=3, oscuro=oscuro, alto=300,
                 ), clave="g_perdida")
 
+                if "prob_test" in r:
+                    st.markdown("#### Métricas de clasificación en prueba")
+                    st.caption(
+                        "Las de la clase de evaluación de modelos de clasificación "
+                        "(ACTD, clases 13-14). Todas salvo el AUC dependen del "
+                        "umbral: un umbral mayor es más exigente y da menos "
+                        "falsos positivos, pero detecta menos prórrogas."
+                    )
+                    umbral = st.slider("Umbral", 0.05, 0.95, 0.5, 0.05, key="mdl_umbral")
+                    met = mdl.metricas(r["y_test"], r["prob_test"], umbral)
+
+                    cm1, cm2 = st.columns([1, 2])
+                    cm1.markdown("**Matriz de confusión**")
+                    cm1.dataframe(
+                        pd.DataFrame(
+                            [[fmt.numero(met["TN"]), fmt.numero(met["FP"])],
+                             [fmt.numero(met["FN"]), fmt.numero(met["TP"])]],
+                            index=pd.Index(["Real: sin prórroga", "Real: con prórroga"]),
+                            columns=["Predicho: sin prórroga", "Predicho: con prórroga"],
+                        ),
+                        width="stretch",
+                    )
+                    tabla_met = pd.DataFrame({
+                        "métrica": [k for k in met if k not in ("TN", "FP", "FN", "TP")],
+                    })
+                    tabla_met["valor"] = [fmt.numero(met[k], 3) for k in tabla_met["métrica"]]
+                    cm2.dataframe(tabla_met, hide_index=True, width="stretch")
+
+                    grafica(st, gr.curva_roc(
+                        mdl.curva_roc(r["y_test"], r["prob_test"]), auc=met["AUC"],
+                        oscuro=oscuro,
+                    ), clave="g_roc")
+                    st.caption(
+                        "Curva ROC: tasa de verdaderos positivos contra tasa de "
+                        "falsos positivos para todos los umbrales. Mejor entre más "
+                        "rápido sube hacia la esquina superior izquierda. AUC: "
+                        "probabilidad de que el modelo ponga un contrato con "
+                        "prórroga, tomado al azar, por encima de uno sin prórroga."
+                    )
+
 # --------------------------- Guardar la selección ---------------------------
 st.divider()
 with st.expander("Guardar esta configuración"):

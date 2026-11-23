@@ -263,7 +263,8 @@ def entrenar_red(tabla: pd.DataFrame, epocas: int = EPOCAS) -> dict:
     Los pasos del cuaderno heart, en el mismo orden, sobre la tabla de `preparar`.
 
     Devuelve el modelo, el historial de entrenamiento, `test_res` (pérdida,
-    accuracy y recall en prueba) y el tamaño de cada conjunto.
+    accuracy y recall en prueba), las etiquetas y probabilidades de prueba en
+    orden (`y_test`, `prob_test`, para `metricas`) y el tamaño de cada conjunto.
     """
     tf, keras = _keras()
 
@@ -341,7 +342,60 @@ def entrenar_red(tabla: pd.DataFrame, epocas: int = EPOCAS) -> dict:
     # Evaluamos en prueba
     test_res = model.evaluate(test_ds, verbose=0, return_dict=True)
 
+    # Probabilidades de prueba en el mismo orden de las etiquetas: `test_ds`
+    # está barajado, así que para comparar uno a uno se recorre sin barajar.
+    X_test = test.drop(columns="target")
+    prob_test = model.predict(
+        tf.data.Dataset.from_tensor_slices(dict(X_test)).batch(256), verbose=0).ravel()
+
     logger.info("Red entrenada: %d entrenamiento, %d validación, %d prueba; %s",
                 len(train), len(val), len(test), test_res)
     return {"model": model, "history": history, "test_res": test_res,
+            "y_test": test["target"].to_numpy(), "prob_test": prob_test,
             "train": len(train), "val": len(val), "test": len(test)}
+
+
+# ----------------------------------------------------------------------------
+# Evaluación de modelos de clasificación (ACTD, clases 13-14)
+# ----------------------------------------------------------------------------
+
+def metricas(y_true, prob, umbral: float = 0.5) -> dict:
+    """
+    Todas las métricas de evaluación de clasificación vistas en clase.
+
+    Las que salen de la matriz de confusión dependen del umbral: con un umbral
+    mayor el modelo es más exigente y da menos falsos positivos. El AUC no
+    depende del umbral y se calcula con la probabilidad, no con la clase
+    predicha: es la probabilidad de que el modelo ranquee un positivo al azar
+    por encima de un negativo al azar.
+    """
+    from sklearn import metrics as skm
+
+    y_true = np.asarray(y_true).astype(int)
+    prob = np.asarray(prob, dtype=float)
+    pred = (prob >= umbral).astype(int)
+    tn, fp, fn, tp = skm.confusion_matrix(y_true, pred, labels=[0, 1]).ravel()
+
+    def razon(a, b):
+        return a / b if b else np.nan
+
+    return {
+        "TN": int(tn), "FP": int(fp), "FN": int(fn), "TP": int(tp),
+        "Accuracy": razon(tp + tn, tp + tn + fp + fn),
+        "Precision": razon(tp, tp + fp),                      # valor de predicción positiva
+        "Valor de predicción negativa": razon(tn, tn + fn),
+        "Recall": razon(tp, tp + fn),                         # sensibilidad, TPR
+        "Especificidad": razon(tn, tn + fp),                  # TNR
+        "Tasa de falsos positivos (error tipo I)": razon(fp, fp + tn),
+        "Tasa de falsos negativos (error tipo II)": razon(fn, fn + tp),
+        "F1": razon(2 * tp, 2 * tp + fp + fn),
+        "AUC": skm.roc_auc_score(y_true, prob) if 0 < y_true.mean() < 1 else np.nan,
+    }
+
+
+def curva_roc(y_true, prob) -> pd.DataFrame:
+    """TPR contra FPR para todos los umbrales (la curva ROC)."""
+    from sklearn import metrics as skm
+
+    fpr, tpr, umbrales = skm.roc_curve(np.asarray(y_true).astype(int), np.asarray(prob))
+    return pd.DataFrame({"fpr": fpr, "tpr": tpr, "umbral": umbrales})

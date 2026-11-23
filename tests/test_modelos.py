@@ -135,3 +135,31 @@ def test_los_deltas_de_procesos_se_calculan_en_dias():
     assert {"dias_publicacion_a_firma", "dias_entre_publicaciones",
             "duracion_proceso"} <= set(numericas)
     assert not set(m.DELTAS_COMPETITIVOS) & set(numericas)
+
+
+def test_las_metricas_son_las_de_la_matriz_de_confusion():
+    """
+    Diapositivas 13-14 de ACTD. Con 4 positivos y 6 negativos y umbral 0,5:
+    TP=3, FN=1, TN=4, FP=2. El AUC se calcula con la probabilidad.
+    """
+    y = [1, 1, 1, 1, 0, 0, 0, 0, 0, 0]
+    prob = [0.9, 0.8, 0.7, 0.3, 0.6, 0.55, 0.4, 0.2, 0.1, 0.05]
+    r = m.metricas(y, prob)
+
+    assert (r["TP"], r["FN"], r["TN"], r["FP"]) == (3, 1, 4, 2)
+    assert r["Accuracy"] == pytest.approx(7 / 10)
+    assert r["Precision"] == pytest.approx(3 / 5)
+    assert r["Valor de predicción negativa"] == pytest.approx(4 / 5)
+    assert r["Recall"] == pytest.approx(3 / 4)
+    assert r["Especificidad"] == pytest.approx(4 / 6)
+    assert r["Tasa de falsos positivos (error tipo I)"] == pytest.approx(2 / 6)
+    assert r["Tasa de falsos negativos (error tipo II)"] == pytest.approx(1 / 4)
+    assert r["F1"] == pytest.approx(2 * 3 / (2 * 3 + 2 + 1))
+    # De los 24 pares positivo-negativo, el positivo queda más alto en 21.
+    assert r["AUC"] == pytest.approx(21 / 24)
+
+    # Un umbral mayor es más exigente: menos falsos positivos.
+    assert m.metricas(y, prob, umbral=0.75)["FP"] == 0
+
+    roc = m.curva_roc(y, prob)
+    assert roc["fpr"].iloc[0] == 0 and roc["tpr"].iloc[-1] == 1

@@ -313,3 +313,29 @@ def curva_lorenz(curva: pd.DataFrame, oscuro: bool = False,
     fig.update_xaxes(title_text="% de proveedores", range=[0, 100], ticksuffix="%")
     fig.update_yaxes(title_text="% del valor acumulado", range=[0, 100], ticksuffix="%")
     return tema(fig, oscuro, alto, leyenda=True)
+
+
+def curva_roc(curva: pd.DataFrame, auc: float | None = None, oscuro: bool = False,
+              alto: int = 340) -> go.Figure:
+    """
+    TPR contra FPR para todos los umbrales, contra la diagonal del azar.
+
+    Mejor entre más rápido sube hacia la esquina superior izquierda.
+    """
+    c = colores(oscuro)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=[0, 1], y=[0, 1], mode="lines", name="Azar (AUC 0,5)",
+        line=dict(color=c["referencia"], width=1, dash="dash"), hoverinfo="skip",
+    ))
+    nombre = "Modelo" if auc is None else f"Modelo (AUC {auc:.3f})".replace(".", ",")
+    fig.add_trace(go.Scatter(
+        x=curva["fpr"], y=curva["tpr"], mode="lines", name=nombre,
+        line=dict(color=c["serie"], width=2),
+        customdata=curva["umbral"],
+        hovertemplate="Umbral %{customdata:.2f}<br>Tasa de falsos positivos %{x:.2f}"
+                      "<br>Recall %{y:.2f}<extra></extra>",
+    ))
+    fig.update_xaxes(title_text="Tasa de falsos positivos (FPR)", range=[0, 1])
+    fig.update_yaxes(title_text="Tasa de verdaderos positivos (TPR, recall)", range=[0, 1])
+    return tema(fig, oscuro, alto, leyenda=True)

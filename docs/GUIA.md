@@ -635,6 +635,26 @@ solo existen en procesos competitivos: llenos en el 1% de los contratos y en el
 29% sin prestación de servicios. Se calculan para el análisis exploratorio pero
 no entran a la red, porque con `dropna`, como en clase, dejarían fuera al 99%.
 
+### Métricas de evaluación (clases 13-14)
+
+`metricas(y_true, prob, umbral)` calcula todas las métricas de evaluación de
+clasificación vistas en clase: matriz de confusión (TN, FP, FN, TP), accuracy,
+precisión, valor de predicción negativa, recall, especificidad, tasa de falsos
+positivos (error tipo I), tasa de falsos negativos (error tipo II), F1 y AUC.
+`curva_roc(y_true, prob)` da los puntos de la curva ROC.
+
+- El AUC se calcula con la **probabilidad**, no con la clase predicha, como dice
+  su definición en las diapositivas. El cuaderno `bank-churners-train-test` del
+  curso lo calcula con la clase predicha; aquí no se repite eso.
+- `entrenar_red` devuelve `y_test` y `prob_test` en el mismo orden: `test_ds`
+  está barajado y no sirve para comparar predicción con etiqueta.
+- En la app, la pestaña del modelo tiene un control de umbral: todas las
+  métricas salvo el AUC cambian con él.
+
+Con los datos de ANT, UNP y ARN y umbral 0,5: AUC 0,877, recall 0,321,
+especificidad 0,968, precisión 0,592, F1 0,416. Con umbral 0,3 el recall sube
+a 0,553 y el F1 a 0,515.
+
 ### El cuaderno
 
 `notebooks/modelo_prorrogas.ipynb` hace lo mismo, celda por celda. De sus 54
