@@ -16,9 +16,10 @@ para dejarlos usables y los **L**oad (carga/guarda) en un destino.
 - **Transformación:** limpieza de tipos y construcción de variables derivadas.
 - **Destino:** archivos CSV en `data/processed/`.
 
-**No es** un modelo de machine learning. Los modelos e índices de riesgo de
-VigIA (Salazar, Pérez y Gallego, 2024) serían una fase posterior; esto construye
-la base de datos limpia sobre la que se pararían.
+Sobre esa base se construyen el **reporte descriptivo** (Entregable 3,
+`notebooks/reporte_descriptivo.ipynb`, ver la sección 12) y un primer **modelo
+de prórrogas** con una red neuronal (sección 8sexies). Los índices de riesgo de
+VigIA (Salazar, Pérez y Gallego, 2024) siguen siendo una fase posterior.
 
 ---
 
@@ -35,11 +36,24 @@ secop2-pipeline/
 │   ├── procesamiento.py      Todo lo que transforma datos  (T)
 │   ├── pipeline.py           Orquestador + configuración   (L)
 │   ├── procesar_csv.py       Variante: procesa un CSV local
-│   └── flujo_vigia.py        Variante: une contratos + procesos
-├── notebooks/                Exploración
+│   ├── flujo_vigia.py        Variante: une contratos + procesos
+│   ├── indicadores.py        Cifras del reporte descriptivo
+│   ├── tendencias.py         Cambios en el tiempo (8quinquies)
+│   ├── modelos.py            Red neuronal de prórrogas (8sexies)
+│   ├── graficas.py           Gráficas de la interfaz
+│   ├── formato.py            Números en formato colombiano
+│   ├── exportar.py           Descarga a Excel
+│   └── cache_valores.py      Caché de los filtros (8ter)
+├── notebooks/
+│   ├── 01_exploracion.ipynb          Exploración inicial de las tablas
+│   ├── reporte_descriptivo.ipynb     Entregable 3
+│   ├── exploratorio_prorrogas.ipynb  Variables del modelo
+│   └── modelo_prorrogas.ipynb        Red neuronal y métricas
+├── tests/                    Pruebas automáticas (pytest)
 ├── logs/                     Registro de las corridas (no se versiona)
 ├── data/raw, data/processed  Datos (no se versionan)
-└── requirements.txt          Librerías necesarias
+├── requirements.txt          Librerías necesarias
+└── requirements-dev.txt      Librerías de pruebas y cuadernos
 ```
 
 **El criterio de organización:** `extraccion.py` y `procesamiento.py` son
@@ -124,6 +138,15 @@ que la función recorre los resultados por páginas: pide un bloque, lo guarda,
 pide el siguiente desde donde quedó, y así hasta agotar el filtro o llegar al
 tope configurado. Entre página y página espera 0,2 segundos para no chocar con
 los límites del portal.
+
+Cada página se pide con `_pedir_pagina`, que hace dos cosas:
+
+- **Ordena por `:id`**, el identificador interno de cada fila en el portal. Sin
+  un orden fijo, el portal no garantiza que dos páginas seguidas no repitan o
+  se salten filas. Con una sola página no se nota; con varias, sí.
+- **Reintenta hasta 3 veces** si el portal no responde a tiempo. Con varias
+  entidades y años, una página de 50.000 filas puede tardar más de un minuto;
+  por eso el tiempo de espera de `crear_cliente` es de 180 segundos.
 
 ### `listar_columnas(tabla)` y `valores_distintos(...)`
 
@@ -757,24 +780,59 @@ tratamiento de registros repetidos queda para el análisis, donde se puede
 decidir con criterio caso por caso. La reconciliación de la tabla de procesos,
 que sí resuelve conflictos, se conserva porque responde a otro problema.
 
+**Pruebas automáticas:** `pytest` corre las pruebas de `tests/` con datos de
+ejemplo (`tests/datos/`), sin conectarse a la API. Cubren extracción (armado de
+la consulta), procesamiento, indicadores, tendencias, gráficas, formato, caché y
+el modelo; las del modelo se omiten si TensorFlow no está instalado.
+
 **Sin resolver:**
 
-1. **No hay pruebas automatizadas.** El error de las fechas se habría detectado
-   con unas pocas líneas de prueba.
-2. **El constructor de filtros es limitado**: sin `LIKE`, sin `IN`, sin
-   comparaciones numéricas.
+1. **El constructor de filtros es limitado**: acepta igualdad, listas de valores
+   (`IN`) y rangos de fecha, pero no búsqueda parcial (`LIKE`) ni comparaciones
+   numéricas.
+2. **Sin app token la API limita las descargas.** Extraer varios años de varias
+   entidades tarda minutos; el reporte guarda los datos para no repetirlo.
 
 ---
 
 ## 12. Relación con los entregables
 
-| Entregable | Estado |
-|---|---|
-| 1. Pipeline de extracción y procesamiento | Funcionando y probado |
-| 2. Parametrización | YAML + interfaz web |
-| 3. Reporte descriptivo | Primeras cifras obtenidas; falta el análisis |
+| Entregable | Estado | Dónde |
+|---|---|---|
+| 1. Pipeline de extracción y procesamiento | Funcionando y probado | `src/extraccion.py`, `src/procesamiento.py`, `src/flujo_vigia.py`, `tests/` |
+| 2. Parametrización | YAML + interfaz web; varias entidades y rango de fechas | `config/config.yaml`, `app.py` |
+| 3. Reporte descriptivo | Cuaderno ejecutado con ANT, UNP y ARN, 2022 – 2026 | `notebooks/reporte_descriptivo.ipynb` |
+
+### El reporte descriptivo (`notebooks/reporte_descriptivo.ipynb`)
+
+Usa el mismo pipeline que la app: `construir_base_contratos` extrae contratos y
+procesos y los une; las cifras salen de `src/indicadores.py` y
+`src/tendencias.py`. Las entidades y el periodo están en la celda de
+parámetros. Los datos se guardan en `data/processed/` para no descargarlos en
+cada ejecución, y solo con las columnas que usa el reporte (la tabla original
+trae datos personales de representantes legales y cuentas bancarias).
+
+Secciones: calidad de los datos, panorama por entidad, contratación por año,
+modalidad y tipo, causales de la contratación directa, prestación de servicios
+frente al resto, valores, tiempos, competencia, proveedores, prórrogas y
+cambios en el tiempo. Cierra con las conclusiones.
+
+Lo principal con ANT, UNP y ARN (60.933 contratos, 2022 – 2026):
+
+- Más del 97 % es contratación directa, casi toda por la causal de servicios
+  profesionales. Pero en valor esos contratos son el 39 % (ANT), 40 % (ARN) y
+  5 % (UNP): el dinero está en pocos contratos grandes.
+- Los 10 mayores proveedores tienen menos del 1 % de los contratos y entre el
+  34 % y el 50 % del valor.
+- Prórrogas: 22,5 % de los contratos en la UNP, 9,8 % en la ANT, 3,5 % en la
+  ARN.
+- En 2022 y 2026 casi no hay firmas de febrero a junio, lo que coincide con la
+  restricción de la Ley de Garantías antes de la elección presidencial.
 
 ### Primeras cifras (UNP, Bogotá, 2025 — 3.273 contratos)
+
+Primera prueba del pipeline, antes del reporte. Se conservan como registro.
+
 
 - **Firma posterior al inicio: 0 casos.** Contrasta con el 5,8% medido en
   Bogotá/sector Transporte, lo que sugiere que el indicador discrimina entre

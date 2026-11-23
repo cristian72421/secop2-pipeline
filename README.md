@@ -23,22 +23,35 @@ primeros entregables de la monitoría:
 
 ```
 secop2-pipeline/
+├── app.py                  # Interfaz web (Streamlit): consulta, resumen, indicadores,
+│                           #   cambios en el tiempo y modelo de prórrogas
 ├── config/
 │   └── config.yaml         # Parámetros de extracción (tabla, filtros, columnas)
 ├── src/
 │   ├── extraccion.py       # Conexión y descarga desde la API de Socrata
 │   ├── procesamiento.py    # Limpieza y estandarización de los datos
-│   ├── pipeline.py         # Orquestador: extrae -> procesa -> guarda
+│   ├── pipeline.py         # Orquestador: extrae -> procesa -> guarda (+ logs)
 │   ├── procesar_csv.py     # Procesa un CSV ya descargado (sin API)
-│   └── flujo_vigia.py      # Flujo multi-tabla: contratos + procesos
-├── app.py                  # Interfaz web (Streamlit) para armar la consulta
+│   ├── flujo_vigia.py      # Flujo multi-tabla: contratos + procesos
+│   ├── indicadores.py      # Cifras del reporte descriptivo
+│   ├── tendencias.py       # Series por periodo y cambios en el tiempo
+│   ├── modelos.py          # Red neuronal para predecir prórrogas
+│   ├── graficas.py         # Gráficas de la app (Plotly)
+│   ├── formato.py          # Números en formato colombiano
+│   ├── exportar.py         # Descarga a Excel con la consulta que la produjo
+│   └── cache_valores.py    # Caché de los valores de los filtros
+├── notebooks/
+│   ├── 01_exploracion.ipynb          # Exploración inicial de las tablas
+│   ├── reporte_descriptivo.ipynb     # Entregable 3: reporte descriptivo
+│   ├── exploratorio_prorrogas.ipynb  # Análisis exploratorio de las variables del modelo
+│   └── modelo_prorrogas.ipynb        # Red neuronal y métricas de clasificación
+├── tests/                  # Pruebas automáticas (pytest), sin conexión a la API
+├── docs/GUIA.md            # Guía detallada del código y de las decisiones
 ├── data/
 │   ├── raw/                # Datos crudos (no se versionan)
 │   └── processed/          # Datos procesados de salida (no se versionan)
-├── notebooks/
-│   └── 01_exploracion.ipynb  # Exploración inicial de las tablas
-├── requirements.txt
-└── README.md
+├── requirements.txt        # Dependencias del pipeline y la app
+└── requirements-dev.txt    # Dependencias de pruebas y cuadernos
 ```
 
 ## Tablas de SECOP 2 disponibles
@@ -75,7 +88,10 @@ source .venv/bin/activate        # En Windows: .venv\Scripts\activate
 
 # 3. Instalar dependencias
 pip install -r requirements.txt
+pip install -r requirements-dev.txt   # pruebas y cuadernos
 ```
+
+TensorFlow (solo para el modelo de prórrogas) requiere Python 3.13 o anterior.
 
 ## Uso
 
@@ -160,7 +176,27 @@ modelos e índices de riesgo.
 - La API de Socrata omite columnas totalmente vacías, lo que puede generar
   diferencias con lo descrito en el portal.
 
+### Reporte descriptivo (Entregable 3)
+
+`notebooks/reporte_descriptivo.ipynb` extrae los datos con el mismo pipeline
+(`construir_base_contratos` de `src/flujo_vigia.py`) y calcula las cifras con
+`src/indicadores.py` y `src/tendencias.py`. Las entidades y el periodo se
+cambian en la celda de parámetros, al inicio del cuaderno. La primera ejecución
+descarga los datos y los guarda en `data/processed/`; las siguientes los leen
+de ahí.
+
+### Pruebas
+
+```bash
+pytest
+```
+
+Las pruebas usan datos de ejemplo de `tests/datos/` y no se conectan a la API.
+Las del modelo se omiten si TensorFlow no está instalado.
+
 ## Próximos pasos
 
-- Enriquecer el reporte descriptivo con indicadores de contratación.
-- Sentar las bases para modelos de **detección temprana de riesgos**.
+- Definir con el asesor el alcance final del reporte descriptivo (entidades y
+  periodo).
+- Modelos de **detección temprana de riesgos**: ver la sección 8sexies de
+  `docs/GUIA.md` para el modelo de prórrogas y sus resultados.
