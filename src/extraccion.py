@@ -30,7 +30,7 @@ DATASETS = {
 }
 
 
-def crear_cliente(app_token: str | None = None, timeout: int = 60) -> Socrata:
+def crear_cliente(app_token: str | None = None, timeout: int = 180) -> Socrata:
     """
     Cliente de Socrata para el portal de datos abiertos.
 
@@ -198,6 +198,35 @@ def diagnosticar_filtros(cliente: Socrata, tabla: str, filtros: dict) -> pd.Data
     return pd.DataFrame(filas)
 
 
+REINTENTOS = 3
+
+
+def _pedir_pagina(cliente: Socrata, dataset_id: str, where: str | None,
+                  limite: int, offset: int) -> list[dict]:
+    """
+    Una página de la consulta, con reintentos si el portal tarda en responder.
+
+    Se ordena por `:id`, el identificador interno de cada fila en Socrata. Sin
+    un orden fijo, el portal no garantiza que dos páginas seguidas no repitan
+    o se salten filas, y con varias páginas eso pasa sin que se note.
+
+    Con varias entidades y años, una página de 50.000 filas puede pasar del
+    tiempo de espera; el siguiente intento suele responder.
+    """
+    for intento in range(1, REINTENTOS + 1):
+        try:
+            return cliente.get(
+                dataset_id, where=where, limit=limite, offset=offset, order=":id",
+            )
+        except requests.exceptions.Timeout:
+            if intento == REINTENTOS:
+                raise
+            logger.warning("El portal no respondió a tiempo (intento %d de %d); "
+                           "se reintenta.", intento, REINTENTOS)
+            time.sleep(5 * intento)
+    return []
+
+
 def extraer_dataset(
     cliente: Socrata,
     tabla: str,
@@ -233,12 +262,7 @@ def extraer_dataset(
             if limite <= 0:
                 break
 
-        registros = cliente.get(
-            dataset_id,
-            where=where,
-            limit=limite,
-            offset=offset,
-        )
+        registros = _pedir_pagina(cliente, dataset_id, where, limite, offset)
         if not registros:
             break
 
